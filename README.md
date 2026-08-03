@@ -70,7 +70,30 @@ Reads `config.json` from the current working directory first, then next to the E
 | `pairing_code` | Six-digit auto-pairing code (optional) |
 | `auto_pair.mode` | `listen` / `connect` |
 | `auto_pair.peer_address` | Peer address for connect mode, e.g. `192.168.1.10` or `192.168.1.10:24818` |
-| `history_limit` / `max_item_bytes` / `cache_bytes` | History count, per-item size limit, cache cap |
+| `history_limit` | Clipboard history count when replay is enabled (default `20`) |
+| `max_item_bytes` | Max total file size per clipboard item on receive (default `2 GB`) |
+| `cache_bytes` | Local file cache quota under `data\cache\` (default `10 GB`) |
+
+## File transfer
+
+Files use the **same encrypted TCP channel** as text and images (default port `24817`, ChaCha20-Poly1305). There is no separate HTTP/SMB/file-sharing port.
+
+1. **Metadata** — a `Clipboard` message sends a file manifest (`relative_path`, `size`, `sha256`, directory flag).
+2. **Payload** — the sender reads local disk and streams **512 KB** chunks as `FileChunk` messages until each file is complete.
+3. **Receive** — chunks are written to `data\cache\<item_id>\`, SHA-256 verified, then placed on the local clipboard.
+
+**Resume:** not supported across disconnects. `offset` in `FileChunk` is only for assembling chunks within one live session. If the connection drops mid-transfer, copy the files again to restart from scratch. Partial cache directories may remain until pruned.
+
+**Limits:**
+
+| Limit | Default | Notes |
+|-------|---------|-------|
+| `max_item_bytes` | 2 GB | Total size of all files in one clipboard item (checked on receive) |
+| `cache_bytes` | 10 GB | Oldest cache directories are deleted when over quota |
+| `FILE_CHUNK_SIZE` | 512 KB | Fixed per-chunk size (not configurable) |
+| `MAX_FRAME_SIZE` | 64 MB | Max single message frame; large file bodies are split into chunks, but text/image metadata embedded in `Clipboard` must stay under this |
+
+The sender does not pre-check `max_item_bytes`; oversized items are rejected by the peer. Adjust limits in `config.json` as needed.
 
 ## Commands
 

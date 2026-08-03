@@ -70,7 +70,30 @@ cargo build --release
 | `pairing_code` | 六位自动配对码（可选） |
 | `auto_pair.mode` | `listen` / `connect` |
 | `auto_pair.peer_address` | connect 模式对端地址，如 `192.168.1.10` 或 `192.168.1.10:24818` |
-| `history_limit` / `max_item_bytes` / `cache_bytes` | 历史条数、单次大小、缓存上限 |
+| `history_limit` | 启用历史回放时的剪贴板条数（默认 `20`） |
+| `max_item_bytes` | 单次剪贴板项中所有文件总大小上限，接收端校验（默认 `2 GB`） |
+| `cache_bytes` | 本地 `data\cache\` 缓存总容量（默认 `10 GB`） |
+
+## 文件传输
+
+文件与文本、图片走**同一条加密 TCP 通道**（默认端口 `24817`，ChaCha20-Poly1305），没有单独的 HTTP/SMB/文件共享端口。
+
+1. **元数据** — 先发 `Clipboard` 消息，携带文件清单（`relative_path`、`size`、`sha256`、是否目录）。
+2. **内容** — 发送端从本地磁盘按 **512 KB** 一块读取，通过 `FileChunk` 消息逐块发送。
+3. **接收** — 写入 `data\cache\<item_id>\`，校验 SHA-256 后进入本机剪贴板。
+
+**断点续传：** 不支持跨连接续传。`FileChunk` 里的 `offset` 仅用于同一次连接内拼装分块。传输中断后需重新复制文件，从头再传；未收完的缓存目录可能残留，直到被缓存清理删除。
+
+**上限：**
+
+| 限制 | 默认值 | 说明 |
+|------|--------|------|
+| `max_item_bytes` | 2 GB | 单次剪贴板项中所有文件总大小（接收端校验） |
+| `cache_bytes` | 10 GB | 超出后按时间删除最旧的缓存目录 |
+| `FILE_CHUNK_SIZE` | 512 KB | 固定分块大小（不可配置） |
+| `MAX_FRAME_SIZE` | 64 MB | 单条消息帧上限；大文件本体拆成多块传输，但嵌在 `Clipboard` 里的文本/图片元数据须低于此值 |
+
+发送端不会预检 `max_item_bytes`，超限项由对端拒绝。可在 `config.json` 中按需调整。
 
 ## 命令
 
