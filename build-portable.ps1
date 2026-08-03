@@ -23,6 +23,7 @@ try {
         Copy-Item (Join-Path $projectRoot "portable\start.bat") $sideDir
         Copy-Item (Join-Path $projectRoot "portable\stop.bat") $sideDir
         Copy-Item (Join-Path $projectRoot "README.md") $sideDir
+        Copy-Item (Join-Path $projectRoot "README.zh-CN.md") $sideDir
         Compress-Archive `
             -Path (Join-Path $sideDir "*") `
             -DestinationPath (Join-Path $distRoot "ClipboardShare-$side.zip") `
