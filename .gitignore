@@ -1,0 +1,14 @@
+/target/
+/dist/
+**/*.log
+**/data/
+.idea/
+.vscode/
+*.pdb
+*.exe
+!portable/**/*.bat
+.DS_Store
+Thumbs.db
+*.zip
+setup-autostart-b.ps1
+last-clip.txt

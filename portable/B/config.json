@@ -1,0 +1,15 @@
+{
+  "device_id": "22222222-2222-4222-8222-222222222222",
+  "device_name": "ClipboardShare-B",
+  "listen_port": 24817,
+  "history_limit": 20,
+  "max_item_bytes": 2147483648,
+  "cache_bytes": 10737418240,
+  "pairing_code": "123456",
+  "auto_pair": {
+    "enabled": true,
+    "mode": "connect",
+    "peer_address": "192.168.1.10"
+  },
+  "peers": []
+}
