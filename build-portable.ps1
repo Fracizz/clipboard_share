@@ -46,9 +46,27 @@ try {
             -CompressionLevel Optimal
     }
 
+    # Dedicated tray-UI package (same binaries; A config as default template).
+    $uiDir = Join-Path $distRoot "ClipboardShare-UI"
+    New-Item -ItemType Directory -Path $uiDir -Force | Out-Null
+    Copy-Item $uiExe (Join-Path $uiDir "clipboard_share_ui.exe")
+    Copy-Item $releaseExe (Join-Path $uiDir "clipboard_share.exe")
+    Copy-Item (Join-Path $projectRoot "portable\A\config.json") (Join-Path $uiDir "config.json")
+    Copy-Item (Join-Path $projectRoot "portable\B\config.json") (Join-Path $uiDir "config.B.example.json")
+    Copy-Item (Join-Path $projectRoot "portable\start-ui.bat") $uiDir
+    Copy-Item (Join-Path $projectRoot "portable\start.bat") $uiDir
+    Copy-Item (Join-Path $projectRoot "portable\stop.bat") $uiDir
+    Copy-Item (Join-Path $projectRoot "README.md") $uiDir
+    Copy-Item (Join-Path $projectRoot "README.zh-CN.md") $uiDir
+    Compress-Archive `
+        -Path (Join-Path $uiDir "*") `
+        -DestinationPath (Join-Path $distRoot "ClipboardShare-UI.zip") `
+        -CompressionLevel Optimal
+
     Write-Host "Portable packages created:"
     Write-Host "  $distRoot\ClipboardShare-A.zip"
     Write-Host "  $distRoot\ClipboardShare-B.zip"
+    Write-Host "  $distRoot\ClipboardShare-UI.zip"
 }
 finally {
     Pop-Location

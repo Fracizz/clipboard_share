@@ -37,7 +37,10 @@ Build A/B portable packages (CLI + UI):
 .\build-portable.ps1
 ```
 
-Output (dedicated folder): `packages\ClipboardShare-A.zip` / `packages\ClipboardShare-B.zip`
+Output (dedicated folder):
+
+- `packages\ClipboardShare-A.zip` / `ClipboardShare-B.zip` — pair templates (CLI + tray UI)
+- `packages\ClipboardShare-UI.zip` — tray-UI focused package (`start-ui.bat`)
 
 ## Tray UI
 

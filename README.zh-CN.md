@@ -37,7 +37,10 @@ cargo build --release -p clipboard_share_ui
 .\build-portable.ps1
 ```
 
-输出（独立目录）：`packages\ClipboardShare-A.zip` / `packages\ClipboardShare-B.zip`
+输出（独立目录）：
+
+- `packages\ClipboardShare-A.zip` / `ClipboardShare-B.zip` — A/B 配对模板（含 CLI + 托盘 UI）
+- `packages\ClipboardShare-UI.zip` — 托盘 UI 专用包（`start-ui.bat`）
 
 ## 托盘界面
 
