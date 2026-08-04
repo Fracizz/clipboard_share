@@ -4,35 +4,57 @@
 
 [English](README.md) | **中文**
 
-Windows 局域网剪贴板同步工具（无 UI）。两台电脑完成一次配对后，可双向同步文本、HTML、RTF、图片以及文件/目录。
+Windows 局域网剪贴板同步工具，可选托盘小界面。两台电脑完成一次配对后，可双向同步文本、HTML、RTF、图片以及文件/目录。
 
-> Windows 10 1809+ / Windows 11。运行在当前登录用户会话中（不能做成 Session 0 服务，否则访问不了用户剪贴板）。
+> **平台（v1）：** 仅 Windows / macOS（暂不支持 Linux）。剪贴板同步目前面向 Windows 10 1809+ / Windows 11。Windows 托盘 UI 需要 [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)——若缺失，程序会弹窗提示并打开 [Evergreen Bootstrapper 下载](https://go.microsoft.com/fwlink/p/?LinkId=2124703)。macOS 使用系统自带 WKWebView，无需额外安装。运行在当前登录用户会话中（不能做成 Session 0 服务）。
 
 ## 功能
 
 - 双向实时同步（文本 / HTML / RTF / PNG 图片 / 文件与目录）
 - 一次性配对码 + SPAKE2，持久密钥用 Windows DPAPI 保护
 - 传输加密：ChaCha20-Poly1305
+- 托盘 UI（Tauri 2）：状态面板、配对/启停，可最小化到系统托盘
 - 便携目录：`config.json` + `data\`，可直接复制部署
 - 可选登录自启（计划任务，延时启动）
 
 ## 构建
 
-需要 [Rust](https://rustup.rs/)（建议最新 stable）：
+需要 [Rust](https://rustup.rs/)（建议最新 stable）。托盘 UI 还需 Node.js（`ui/` 下的 `@tauri-apps/cli`）。
 
 ```powershell
-cargo build --release
+cargo build --release -p clipboard_share
+cargo build --release -p clipboard_share_ui
 ```
 
-产物：`target\release\clipboard_share.exe`
+产物：
 
-生成 A/B 便携包：
+- `target\release\clipboard_share.exe` — 命令行
+- `target\release\clipboard_share_ui.exe` — 托盘界面（进程内嵌同步）
+
+生成 A/B 便携包（含 CLI + UI）：
 
 ```powershell
 .\build-portable.ps1
 ```
 
-输出：`dist\ClipboardShare-A.zip` / `dist\ClipboardShare-B.zip`
+输出（独立目录）：`packages\ClipboardShare-A.zip` / `packages\ClipboardShare-B.zip`
+
+## 托盘界面
+
+```powershell
+.\clipboard_share_ui.exe
+# 或
+.\start-ui.bat
+```
+
+- 关闭窗口会**隐藏到托盘**，不会退出
+- 托盘菜单：显示面板 / 开始同步 / 停止同步 / 退出
+- 左键单击托盘图标可重新打开面板
+- UI 单实例；同步与 CLI daemon 共用同一把实例锁
+- **语言：** 面板内可切换 English / 中文（默认 **English**，选择会本地保存）。托盘菜单随界面语言切换。
+- **Windows WebView2：** 若未安装，会弹窗提示并自动打开下载地址  
+  [https://go.microsoft.com/fwlink/p/?LinkId=2124703](https://go.microsoft.com/fwlink/p/?LinkId=2124703)  
+  （Evergreen Bootstrapper）。安装后重新启动。说明页：[WebView2](https://developer.microsoft.com/microsoft-edge/webview2/)。
 
 ## 快速开始
 

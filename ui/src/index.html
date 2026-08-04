@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ClipboardShare</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script type="module" src="main.js" defer></script>
+  </head>
+  <body>
+    <main class="panel">
+      <header class="hero">
+        <div>
+          <p class="eyebrow" data-i18n="eyebrow">LAN clipboard</p>
+          <h1>ClipboardShare</h1>
+        </div>
+        <div class="hero-aside">
+          <div class="lang-switch" role="group" aria-label="Language">
+            <button type="button" class="lang-btn active" data-lang="en" data-i18n="langEn">EN</button>
+            <button type="button" class="lang-btn" data-lang="zh" data-i18n="langZh">中文</button>
+          </div>
+          <span id="run-badge" class="badge stopped">Stopped</span>
+        </div>
+      </header>
+
+      <div class="content">
+        <div class="stack-col">
+          <section class="card">
+            <h2 data-i18n="device">Device</h2>
+            <dl class="meta">
+              <div>
+                <dt data-i18n="name">Name</dt>
+                <dd id="device-name">—</dd>
+              </div>
+              <div>
+                <dt data-i18n="id">ID</dt>
+                <dd id="device-id" class="mono">—</dd>
+              </div>
+              <div>
+                <dt data-i18n="ports">Ports</dt>
+                <dd id="ports">—</dd>
+              </div>
+            </dl>
+            <div class="row">
+              <button id="btn-start" type="button" data-i18n="startSync">Start sync</button>
+              <button id="btn-stop" type="button" class="ghost" data-i18n="stop">Stop</button>
+            </div>
+          </section>
+
+          <section class="card peers-card">
+            <h2 data-i18n="peers">Peers</h2>
+            <ul id="peers" class="peers">
+              <li class="empty" data-i18n="noPeers">No paired devices</li>
+            </ul>
+          </section>
+        </div>
+
+        <section class="card">
+          <h2 data-i18n="pair">Pair</h2>
+          <div class="stack">
+            <label>
+              <span data-i18n="optionalCode">Optional code</span>
+              <input id="listen-code" maxlength="6" data-i18n-placeholder="auto" placeholder="auto" inputmode="numeric" />
+            </label>
+            <button id="btn-listen" type="button" data-i18n="waitForPair">Wait for pair</button>
+            <p id="listen-hint" class="hint"></p>
+            <hr />
+            <label>
+              <span data-i18n="peerAddress">Peer address</span>
+              <input id="peer-address" placeholder="192.168.1.10" />
+            </label>
+            <label>
+              <span data-i18n="pairingCode">Pairing code</span>
+              <input id="peer-code" maxlength="6" placeholder="123456" inputmode="numeric" />
+            </label>
+            <button id="btn-connect" type="button" class="ghost" data-i18n="connectPeer">Connect to peer</button>
+          </div>
+        </section>
+      </div>
+
+      <p id="message" class="message" role="status"></p>
+    </main>
+  </body>
+</html>

@@ -4,35 +4,57 @@
 
 **English** | [中文](README.zh-CN.md)
 
-Headless Windows LAN clipboard sync. After a one-time pairing, two PCs can sync text, HTML, RTF, images, and files/directories in both directions.
+Windows LAN clipboard sync with an optional tray UI. After a one-time pairing, two PCs sync text, HTML, RTF, images, and files/directories in both directions.
 
-> Requires Windows 10 1809+ or Windows 11. Runs in the logged-in user session (not as a Session 0 service, which cannot access the user clipboard).
+> **Platforms (v1):** Windows and macOS only (Linux not supported). Clipboard sync itself currently targets Windows 10 1809+ / Windows 11. Tray UI on Windows requires [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) — if missing, the app opens the [Evergreen Bootstrapper download](https://go.microsoft.com/fwlink/p/?LinkId=2124703) and shows a prompt. macOS uses built-in WKWebView (no extra install). Runs in the logged-in user session (not as a Session 0 service).
 
 ## Features
 
 - Real-time bidirectional sync (text / HTML / RTF / PNG images / files & directories)
 - One-time pairing code + SPAKE2; persistent keys protected by Windows DPAPI
 - Encrypted transport: ChaCha20-Poly1305
+- Tray UI (Tauri 2): status panel, pair/start/stop, minimize to the notification area
 - Portable layout: `config.json` + `data\`, copy-and-run deployment
 - Optional logon autostart (scheduled task with delayed start)
 
 ## Build
 
-Requires [Rust](https://rustup.rs/) (latest stable recommended):
+Requires [Rust](https://rustup.rs/) (latest stable recommended). Tray UI also needs Node.js for `@tauri-apps/cli` in `ui/`.
 
 ```powershell
-cargo build --release
+cargo build --release -p clipboard_share
+cargo build --release -p clipboard_share_ui
 ```
 
-Output: `target\release\clipboard_share.exe`
+Outputs:
 
-Build A/B portable packages:
+- `target\release\clipboard_share.exe` — CLI
+- `target\release\clipboard_share_ui.exe` — tray UI (embeds sync in-process)
+
+Build A/B portable packages (CLI + UI):
 
 ```powershell
 .\build-portable.ps1
 ```
 
-Output: `dist\ClipboardShare-A.zip` / `dist\ClipboardShare-B.zip`
+Output (dedicated folder): `packages\ClipboardShare-A.zip` / `packages\ClipboardShare-B.zip`
+
+## Tray UI
+
+```powershell
+.\clipboard_share_ui.exe
+# or
+.\start-ui.bat
+```
+
+- Closing the window **hides to the tray** (does not quit)
+- Tray menu: Show panel / Start sync / Stop sync / Quit
+- Left-click the tray icon to reopen the panel
+- Only one UI instance is allowed; sync uses the same single-instance lock as the CLI daemon
+- **Language:** English / 中文 toggle in the panel (default **English**; preference saved locally). Tray menu follows the selected language.
+- **Windows WebView2:** if the runtime is missing, a dialog appears and the browser opens  
+  [https://go.microsoft.com/fwlink/p/?LinkId=2124703](https://go.microsoft.com/fwlink/p/?LinkId=2124703)  
+  (Evergreen Bootstrapper). Install, then relaunch. Docs: [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/).
 
 ## Quick start
 

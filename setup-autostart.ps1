@@ -9,9 +9,18 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$exe = Join-Path $InstallDir 'clipboard_share.exe'
-if (-not (Test-Path -LiteralPath $exe)) {
-    throw "找不到可执行文件: $exe"
+$uiExe = Join-Path $InstallDir 'clipboard_share_ui.exe'
+$cliExe = Join-Path $InstallDir 'clipboard_share.exe'
+
+$exe = $null
+$arguments = ''
+if (Test-Path -LiteralPath $uiExe) {
+    $exe = $uiExe
+} elseif (Test-Path -LiteralPath $cliExe) {
+    $exe = $cliExe
+    $arguments = 'start'
+} else {
+    throw "找不到可执行文件: $uiExe 或 $cliExe"
 }
 
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -30,7 +39,11 @@ if (Get-ItemProperty -Path $runKey -Name 'ClipboardShare' -ErrorAction SilentlyC
 Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
 Unregister-ScheduledTask -TaskName 'ClipboardShareStart' -Confirm:$false -ErrorAction SilentlyContinue
 
-$action = New-ScheduledTaskAction -Execute $exe -Argument 'start' -WorkingDirectory $InstallDir
+$action = if ([string]::IsNullOrWhiteSpace($arguments)) {
+    New-ScheduledTaskAction -Execute $exe -WorkingDirectory $InstallDir
+} else {
+    New-ScheduledTaskAction -Execute $exe -Argument $arguments -WorkingDirectory $InstallDir
+}
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $userId
 $trigger.Delay = "PT${DelaySeconds}S"
 $settings = New-ScheduledTaskSettingsSet `

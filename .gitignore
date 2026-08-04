@@ -1,5 +1,7 @@
 /target/
 /dist/
+/packages/
+**/node_modules/
 **/*.log
 **/data/
 .idea/
@@ -12,3 +14,4 @@ Thumbs.db
 *.zip
 setup-autostart-b.ps1
 last-clip.txt
+ui/src-tauri/gen/

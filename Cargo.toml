@@ -1,6 +1,10 @@
+[workspace]
+members = [".", "ui/src-tauri"]
+resolver = "2"
+
 [package]
 name = "clipboard_share"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "LAN clipboard sync for Windows (text, images, files)"
 license = "MIT"
@@ -8,6 +12,14 @@ repository = "https://github.com/Fracizz/clipboard_share"
 readme = "README.md"
 keywords = ["clipboard", "windows", "lan", "sync"]
 categories = ["command-line-utilities"]
+
+[lib]
+name = "clipboard_share"
+path = "src/lib.rs"
+
+[[bin]]
+name = "clipboard_share"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0.104"
