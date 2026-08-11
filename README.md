@@ -4,9 +4,155 @@
 
 **English** | [中文](README.zh-CN.md)
 
-Windows LAN clipboard sync with an optional tray UI. After a one-time pairing, two PCs sync text, HTML, RTF, images, and files/directories in both directions.
+Windows LAN clipboard sync. The CLI is the recommended entry point: after a one-time pairing, two PCs sync text, HTML, RTF, images, and files/directories in both directions.
 
-> **Platforms (v1):** Windows and macOS only (Linux not supported). Clipboard sync itself currently targets Windows 10 1809+ / Windows 11. Tray UI on Windows requires [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) — if missing, the app opens the [Evergreen Bootstrapper download](https://go.microsoft.com/fwlink/p/?LinkId=2124703) and shows a prompt. macOS uses built-in WKWebView (no extra install). Runs in the logged-in user session (not as a Session 0 service).
+> **Platforms (v1):** Windows and macOS only (Linux not supported). Clipboard sync currently targets Windows 10 1809+ / Windows 11. The Windows tray UI requires [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/); the CLI does not. The app runs in the logged-in user session.
+
+## 30-second CLI quick start
+
+### 1. Prepare
+
+Copy `clipboard_share.exe` to a directory on both PCs. Enable Windows Clipboard history with `Win+V`.
+
+Allow TCP `24817` (sync) and `24818` (pairing) on **Private** networks only. Run this in an elevated PowerShell on each PC:
+
+```powershell
+New-NetFirewallRule -DisplayName "ClipboardShare" `
+  -Direction Inbound -Protocol TCP -LocalPort 24817,24818 `
+  -Profile Private -Action Allow
+```
+
+### 2. Pair once
+
+On PC A, keep this window open:
+
+```powershell
+.\clipboard_share.exe pair-listen
+# The command prints a six-digit pairing code, for example 123456
+```
+
+On PC B, replace the IP and code with A's values:
+
+```powershell
+.\clipboard_share.exe pair 192.168.1.10 123456
+```
+
+After pairing succeeds, start sync on both PCs:
+
+```powershell
+.\clipboard_share.exe start
+.\clipboard_share.exe status
+```
+
+From now on, only `start` is needed. Pairing information is stored in `config.json`, and keys are protected by Windows DPAPI. `pair-listen` waits for five minutes; its code is valid for that pairing attempt only.
+
+### 3. Verify
+
+Copy text or a file on either PC, then check it with `Win+V` on the other PC. For troubleshooting, run in the foreground:
+
+```powershell
+.\clipboard_share.exe stop
+.\clipboard_share.exe daemon
+```
+
+Press `Ctrl+C` to exit foreground mode.
+
+## Config templates (automatic pairing)
+
+To avoid typing `pair` manually, save the following as `config.json` on each PC and run `start`. The A/B `device_id` values must be different, `pairing_code` must match, and B's `peer_address` must be A's LAN IP.
+
+PC A:
+
+```json
+{
+  "device_id": "11111111-1111-4111-8111-111111111111",
+  "device_name": "ClipboardShare-A",
+  "listen_port": 24817,
+  "history_limit": 20,
+  "max_item_bytes": 2147483648,
+  "cache_bytes": 10737418240,
+  "pairing_code": "123456",
+  "auto_pair": {
+    "enabled": true,
+    "mode": "listen",
+    "peer_address": null
+  },
+  "peers": []
+}
+```
+
+PC B:
+
+```json
+{
+  "device_id": "22222222-2222-4222-8222-222222222222",
+  "device_name": "ClipboardShare-B",
+  "listen_port": 24817,
+  "history_limit": 20,
+  "max_item_bytes": 2147483648,
+  "cache_bytes": 10737418240,
+  "pairing_code": "123456",
+  "auto_pair": {
+    "enabled": true,
+    "mode": "connect",
+    "peer_address": "192.168.1.10"
+  },
+  "peers": []
+}
+```
+
+Start on both PCs from the directory containing `config.json`:
+
+```powershell
+.\clipboard_share.exe start
+.\clipboard_share.exe status
+```
+
+The repository includes the same templates at `portable\A\config.json` and `portable\B\config.json`. Build portable packages with:
+
+```powershell
+.\build-portable.ps1
+```
+
+This creates `packages\ClipboardShare-A.zip` and `packages\ClipboardShare-B.zip`. After extracting, confirm the IP and pairing code in the A/B configuration.
+
+## Common CLI commands
+
+```powershell
+.\clipboard_share.exe --help
+.\clipboard_share.exe start             # Start in the background
+.\clipboard_share.exe stop              # Stop background sync
+.\clipboard_share.exe status            # Show state, ports, and paired devices
+.\clipboard_share.exe daemon            # Run in the foreground for troubleshooting
+.\clipboard_share.exe pair-listen       # Wait for a one-time pairing code
+.\clipboard_share.exe pair <ip> <code>  # Connect with a pairing code
+.\clipboard_share.exe unpair <uuid>     # UUID comes from status
+.\clipboard_share.exe install            # Copy to the user directory and enable logon startup
+.\clipboard_share.exe uninstall
+```
+
+Config lookup order:
+
+1. Absolute path from `CLIPBOARD_SHARE_CONFIG`;
+2. `config.json` in the current working directory;
+3. `config.json` beside the executable.
+
+Cache and logs are stored under `data\` beside the config: file cache in `data\cache\`, logs in `data\logs\`. Example:
+
+```powershell
+$env:CLIPBOARD_SHARE_CONFIG = "D:\ClipboardShare\A\config.json"
+.\clipboard_share.exe status
+```
+
+Common settings:
+
+- `listen_port`: sync port, default `24817`; pairing uses this port plus `1`.
+- `pairing_code`: six-digit code for automatic pairing.
+- `auto_pair.enabled`: automatically pair when `start` runs.
+- `auto_pair.mode`: use `listen` on A and `connect` on B.
+- `auto_pair.peer_address`: B's address for A, for example `192.168.1.10` or `192.168.1.10:24818`.
+- `max_item_bytes`: maximum total file size per transfer, default `2 GB`.
+- `cache_bytes`: local file-cache quota, default `10 GB`.
 
 ## Features
 
@@ -17,32 +163,7 @@ Windows LAN clipboard sync with an optional tray UI. After a one-time pairing, t
 - Portable layout: `config.json` + `data\`, copy-and-run deployment
 - Optional logon autostart (scheduled task with delayed start)
 
-## Build
-
-Requires [Rust](https://rustup.rs/) (latest stable recommended). Tray UI also needs Node.js for `@tauri-apps/cli` in `ui/`.
-
-```powershell
-cargo build --release -p clipboard_share
-cargo build --release -p clipboard_share_ui
-```
-
-Outputs:
-
-- `target\release\clipboard_share.exe` — CLI
-- `target\release\clipboard_share_ui.exe` — tray UI (embeds sync in-process)
-
-Build A/B portable packages (CLI + UI):
-
-```powershell
-.\build-portable.ps1
-```
-
-Output (dedicated folder):
-
-- `packages\ClipboardShare-A.zip` / `ClipboardShare-B.zip` — pair templates (CLI + tray UI)
-- `packages\ClipboardShare-UI.zip` — tray-UI focused package (`start-ui.bat`)
-
-## Tray UI
+## Optional tray UI
 
 ```powershell
 .\clipboard_share_ui.exe
@@ -50,54 +171,29 @@ Output (dedicated folder):
 .\start-ui.bat
 ```
 
-- Closing the window **hides to the tray** (does not quit)
-- Tray menu: Show panel / Start sync / Stop sync / Quit
-- Left-click the tray icon to reopen the panel
-- Only one UI instance is allowed; sync uses the same single-instance lock as the CLI daemon
-- **Language:** English / 中文 toggle in the panel (default **English**; preference saved locally). Tray menu follows the selected language.
-- **Windows WebView2:** if the runtime is missing, a dialog appears and the browser opens  
-  [https://go.microsoft.com/fwlink/p/?LinkId=2124703](https://go.microsoft.com/fwlink/p/?LinkId=2124703)  
-  (Evergreen Bootstrapper). Install, then relaunch. Docs: [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/).
+- Closing the window hides it in the tray; it does not stop sync.
+- The tray menu can show the panel, start/stop sync, and quit.
+- The panel defaults to English; switch to 中文 in the panel if needed. The preference is saved locally.
+- If WebView2 is missing, the app opens the [installation page](https://developer.microsoft.com/microsoft-edge/webview2/); install it and relaunch the UI.
 
-## Quick start
+## Build
 
-1. Enable **Clipboard history** in Windows Settings (Win+V).
-2. On machine A:
+Requires [Rust](https://rustup.rs/) (latest stable recommended). Build the CLI:
 
-   ```powershell
-   .\clipboard_share.exe pair-listen
-   ```
+```powershell
+cargo build --release -p clipboard_share
+```
 
-   Note the six-digit pairing code shown.
+The optional UI also requires Node.js:
 
-3. On machine B (replace the IP with A's LAN address):
+```powershell
+cargo build --release -p clipboard_share_ui
+```
 
-   ```powershell
-   .\clipboard_share.exe pair 192.168.1.10 123456
-   ```
+Outputs:
 
-4. On both machines:
-
-   ```powershell
-   .\clipboard_share.exe start
-   .\clipboard_share.exe status
-   ```
-
-Alternatively, edit the portable templates in `portable\A|B\config.json`: set the same `pairing_code`, use `auto_pair.mode=listen` on A and `connect` with `peer_address` on B, then run `start.bat` after packaging.
-
-## Config
-
-Reads `config.json` from the current working directory first, then next to the EXE. Set `CLIPBOARD_SHARE_CONFIG` to an absolute path to override. Cache and logs are stored in `data\` beside the config.
-
-| Field | Description |
-|-------|-------------|
-| `listen_port` | Default sync port `24817` (pairing uses port +1) |
-| `pairing_code` | Six-digit auto-pairing code (optional) |
-| `auto_pair.mode` | `listen` / `connect` |
-| `auto_pair.peer_address` | Peer address for connect mode, e.g. `192.168.1.10` or `192.168.1.10:24818` |
-| `history_limit` | Clipboard history count when replay is enabled (default `20`) |
-| `max_item_bytes` | Max total file size per clipboard item on receive (default `2 GB`) |
-| `cache_bytes` | Local file cache quota under `data\cache\` (default `10 GB`) |
+- `target\release\clipboard_share.exe` — CLI
+- `target\release\clipboard_share_ui.exe` — tray UI (embeds sync in-process)
 
 ## File transfer
 
@@ -120,27 +216,19 @@ Files use the **same encrypted TCP channel** as text and images (default port `2
 
 The sender does not pre-check `max_item_bytes`; oversized items are rejected by the peer. Adjust limits in `config.json` as needed.
 
-## Commands
+## Logon startup (optional)
+
+Simple startup:
 
 ```powershell
-.\clipboard_share.exe daemon          # Run in foreground (easier to debug)
-.\clipboard_share.exe start           # Start in background
-.\clipboard_share.exe stop            # Stop
-.\clipboard_share.exe status          # Status
-.\clipboard_share.exe pair-listen     # Wait for pairing
-.\clipboard_share.exe pair <ip> <code>
-.\clipboard_share.exe unpair <uuid>
-.\clipboard_share.exe install         # Install to %LOCALAPPDATA% and register autostart
-.\clipboard_share.exe uninstall
+.\clipboard_share.exe install
 ```
 
-Delayed logon autostart via scheduled task (recommended):
+For delayed startup, use the scheduled-task script:
 
 ```powershell
 .\setup-autostart.ps1 -InstallDir "D:\path\to\ClipboardShare" -DelaySeconds 15
 ```
-
-Allow TCP `24817` / `24818` through the firewall on **Private** networks only.
 
 ## Behavior notes
 
