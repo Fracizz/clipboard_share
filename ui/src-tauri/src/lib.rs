@@ -151,10 +151,8 @@ pub fn run() {
                 .locale
                 .set_menu_items(show, start, stop, quit);
 
-            let icon = app
-                .default_window_icon()
-                .cloned()
-                .expect("application icon must exist");
+            // A dedicated compact mark stays readable in the Windows tray.
+            let icon = tauri::include_image!("icons/tray-32.png");
 
             TrayIconBuilder::with_id("main")
                 .icon(icon)

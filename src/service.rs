@@ -17,10 +17,9 @@ use uuid::Uuid;
 
 use crate::{
     clipboard,
-    config::{AppConfig, AutoPairMode, log_dir},
+    config::{AppConfig, AutoPairMode, config_path, log_dir},
     network::{self, NetworkState},
-    process_control,
-    windows_runtime,
+    process_control, windows_runtime,
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -66,7 +65,7 @@ impl SyncService {
             device_id: config.device_id,
             device_name: config.device_name,
             listen_port: config.listen_port,
-            pairing_port: network::default_pairing_port(),
+            pairing_port: config.listen_port.checked_add(1).context("配对端口溢出")?,
             running: process_control::is_running(config.device_id),
             peers: config
                 .peers
@@ -122,12 +121,15 @@ impl SyncService {
         *join = Some(handle);
         // 等待实例锁建立，便于 UI 立刻读到 running。
         for _ in 0..50 {
+            if join.as_ref().is_some_and(|handle| handle.is_finished()) {
+                bail!("同步线程启动失败，请检查 data\\logs");
+            }
             if process_control::is_running(config.device_id) {
                 return Ok(());
             }
             thread::sleep(Duration::from_millis(50));
         }
-        Ok(())
+        bail!("同步启动超时，请检查 data\\logs")
     }
 
     pub fn stop(&self) -> Result<bool> {
@@ -174,9 +176,7 @@ pub fn validate_code(code: &str) -> Result<()> {
 
 static LOG_GUARD: OnceLock<tracing_appender::non_blocking::WorkerGuard> = OnceLock::new();
 
-pub fn init_logging(
-    also_stderr: bool,
-) -> Result<tracing_appender::non_blocking::WorkerGuard> {
+pub fn init_logging(also_stderr: bool) -> Result<tracing_appender::non_blocking::WorkerGuard> {
     let directory = log_dir()?;
     std::fs::create_dir_all(&directory)?;
     let file_appender = tracing_appender::rolling::daily(directory, "clipboard-share.log");
@@ -236,7 +236,7 @@ pub async fn run_daemon(stopping: Arc<AtomicBool>) -> Result<()> {
                 let (shutdown_sender, shutdown_receiver) = tokio::sync::watch::channel(false);
 
                 let watcher_state = state.clone();
-                let watcher = tokio::task::spawn_local(async move {
+                let mut watcher = tokio::task::spawn_local(async move {
                     clipboard::watch(
                         config,
                         capture_sender,
@@ -248,11 +248,12 @@ pub async fn run_daemon(stopping: Arc<AtomicBool>) -> Result<()> {
                 });
 
                 let network_state = state.clone();
-                let network =
-                    tokio::task::spawn_local(async move { network::run(network_state).await });
+                let mut network = tokio::task::spawn_local(async move {
+                    run_network_with_reload(network_state).await
+                });
 
                 let outbound = state.outbound.clone();
-                let dispatcher = tokio::task::spawn_local(async move {
+                let mut dispatcher = tokio::task::spawn_local(async move {
                     while let Some(capture) = capture_receiver.recv().await {
                         let _ = outbound.send(Arc::new(capture));
                     }
@@ -260,13 +261,12 @@ pub async fn run_daemon(stopping: Arc<AtomicBool>) -> Result<()> {
 
                 info!("ClipboardShare 后台同步已启动");
                 let outcome = tokio::select! {
-                    result = watcher => result.context("剪贴板监听任务异常退出")?,
-                    result = network => result.context("网络任务异常退出")?,
-                    _ = dispatcher => Err(anyhow::anyhow!("剪贴板分发任务异常退出")),
+                    result = &mut watcher => result.context("剪贴板监听任务异常退出").and_then(|result| result),
+                    result = &mut network => result.context("网络任务异常退出").and_then(|result| result),
+                    _ = &mut dispatcher => Err(anyhow::anyhow!("剪贴板分发任务异常退出")),
                     result = tokio::signal::ctrl_c() => {
-                        result?;
                         info!("收到退出信号");
-                        Ok(())
+                        result.context("监听退出信号失败")
                     }
                     _ = instance.wait_for_stop() => {
                         info!("收到后台停止请求");
@@ -278,6 +278,13 @@ pub async fn run_daemon(stopping: Arc<AtomicBool>) -> Result<()> {
                     }
                 };
                 let _ = shutdown_sender.send(true);
+                // Release all clipboard/connection futures before shutting down the STA.
+                watcher.abort();
+                network.abort();
+                dispatcher.abort();
+                if !watcher.is_finished() { let _ = watcher.await; }
+                if !network.is_finished() { let _ = network.await; }
+                if !dispatcher.is_finished() { let _ = dispatcher.await; }
                 outcome
             }
             .await;
@@ -288,6 +295,55 @@ pub async fn run_daemon(stopping: Arc<AtomicBool>) -> Result<()> {
             shutdown
         })
         .await
+}
+
+async fn run_network_with_reload(state: NetworkState) -> Result<()> {
+    let path = config_path()?;
+    loop {
+        let previous = state.config.read().await.clone();
+        // A nested LocalSet owns every connector and accepted connection. Dropping it
+        // revokes old sessions, including sockets currently waiting for data.
+        let connections = tokio::task::LocalSet::new();
+        let changed = connections
+            .run_until(async {
+                tokio::select! {
+                    result = network::run(state.clone()) => {
+                        result?;
+                        Err(anyhow::anyhow!("网络任务意外结束"))
+                    }
+                    next = wait_for_config_change(&path, &previous) => next,
+                }
+            })
+            .await?;
+        drop(connections);
+        info!(
+            peers = changed.peers.len(),
+            "配置已更新，关闭旧连接并重新建立授权连接"
+        );
+        *state.config.write().await = changed;
+    }
+}
+
+async fn wait_for_config_change(path: &std::path::Path, previous: &AppConfig) -> Result<AppConfig> {
+    let baseline = serde_json::to_vec(previous)?;
+    let mut interval = tokio::time::interval(Duration::from_millis(500));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        interval.tick().await;
+        // Never create a default config during the save/rename window.
+        let Ok(bytes) = tokio::fs::read(path).await else {
+            continue;
+        };
+        let Ok(next) = serde_json::from_slice::<AppConfig>(&bytes) else {
+            continue;
+        };
+        if next.device_id != previous.device_id {
+            continue; // Changing the instance identity requires a full restart.
+        }
+        if serde_json::to_vec(&next)? != baseline {
+            return Ok(next);
+        }
+    }
 }
 
 async fn wait_flag(flag: &AtomicBool) {
@@ -350,4 +406,59 @@ pub fn spawn_background_daemon() -> Result<()> {
         .spawn()
         .context("无法创建后台同步进程")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::PeerConfig;
+
+    #[tokio::test]
+    async fn reload_observes_removed_peer_and_ignores_incomplete_config() {
+        let directory =
+            std::env::temp_dir().join(format!("clipboard-config-test-{}", Uuid::new_v4()));
+        tokio::fs::create_dir_all(&directory).await.unwrap();
+        let path = directory.join("config.json");
+        let mut previous = AppConfig::default();
+        previous.peers.push(PeerConfig {
+            device_id: Uuid::new_v4(),
+            device_name: "test peer".into(),
+            address: "127.0.0.1:24817".into(),
+            protected_key: String::new(),
+        });
+        // A missing or partial file must never regenerate an empty configuration.
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(30),
+                wait_for_config_change(&path, &previous)
+            )
+            .await
+            .is_err()
+        );
+        assert!(!path.exists());
+        tokio::fs::write(&path, b"{").await.unwrap();
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(30),
+                wait_for_config_change(&path, &previous)
+            )
+            .await
+            .is_err()
+        );
+        let mut next = previous.clone();
+        next.peers.clear();
+        tokio::fs::write(&path, serde_json::to_vec(&next).unwrap())
+            .await
+            .unwrap();
+        let changed = tokio::time::timeout(
+            Duration::from_secs(2),
+            wait_for_config_change(&path, &previous),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(changed.peers.is_empty());
+        assert_eq!(changed.device_id, previous.device_id);
+        tokio::fs::remove_dir_all(directory).await.unwrap();
+    }
 }

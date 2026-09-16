@@ -3,7 +3,7 @@
   "device_name": "ClipboardShare-A",
   "listen_port": 24817,
   "history_limit": 20,
-  "max_item_bytes": 2147483648,
+  "max_item_bytes": 52428800,
   "cache_bytes": 10737418240,
   "pairing_code": "123456",
   "auto_pair": {

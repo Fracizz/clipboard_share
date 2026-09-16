@@ -9,11 +9,16 @@ use chacha20poly1305::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
+use tokio::net::{
+    TcpStream,
+    tcp::{OwnedReadHalf, OwnedWriteHalf},
+};
 use uuid::Uuid;
 
 pub const PROTOCOL_VERSION: u16 = 1;
-pub const MAX_FRAME_SIZE: usize = 64 * 1024 * 1024;
+pub const MAX_ITEM_BYTES: u64 = 50 * 1024 * 1024;
+// Base64 payload plus bounded metadata; the logical item limit is checked separately.
+pub const MAX_FRAME_SIZE: usize = (MAX_ITEM_BYTES as usize).div_ceil(3) * 4 + 1024 * 1024;
 pub const FILE_CHUNK_SIZE: usize = 512 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -45,12 +50,52 @@ impl ClipboardItem {
         Ok(item)
     }
 
+    /// Sum decoded clipboard formats and all declared files, without large decode allocations.
+    pub fn payload_bytes(&self) -> Result<u64> {
+        let mut total = self.files.iter().try_fold(0_u64, |sum, file| {
+            sum.checked_add(file.size).context("剪贴板总大小溢出")
+        })?;
+        for format in &self.formats {
+            let mut decoded = [0_u8; 3072];
+            for chunk in format.data_base64.as_bytes().chunks(4096) {
+                let size = BASE64
+                    .decode_slice(chunk, &mut decoded)
+                    .context("剪贴板格式 Base64 无效")?;
+                total = total.checked_add(size as u64).context("剪贴板总大小溢出")?;
+            }
+        }
+        Ok(total)
+    }
+
+    pub fn validate_size(&self, configured_limit: u64, direction: &str) -> Result<u64> {
+        let limit = configured_limit.min(MAX_ITEM_BYTES);
+        let actual_bytes = self.payload_bytes()?;
+        if actual_bytes > limit {
+            tracing::warn!(item_id = %self.id, direction, actual_bytes, limit_bytes = limit,
+                "剪贴板项目超过大小限制，已拒绝");
+            bail!("剪贴板项目 {actual_bytes} 字节超过限制 {limit} 字节");
+        }
+        Ok(actual_bytes)
+    }
+
     pub fn calculate_hash(&self) -> Result<String> {
-        let mut normalized = self.clone();
-        normalized.id = Uuid::nil();
-        normalized.origin = Uuid::nil();
-        normalized.created_unix_ms = 0;
-        normalized.content_hash.clear();
+        #[derive(Serialize)]
+        struct HashView<'a> {
+            id: Uuid,
+            origin: Uuid,
+            created_unix_ms: u64,
+            formats: &'a [ClipboardFormat],
+            files: &'a [FileEntry],
+            content_hash: &'a str,
+        }
+        let normalized = HashView {
+            id: Uuid::nil(),
+            origin: Uuid::nil(),
+            created_unix_ms: 0,
+            formats: &self.formats,
+            files: &self.files,
+            content_hash: "",
+        };
         let bytes = serde_json::to_vec(&normalized)?;
         Ok(hex::encode(Sha256::digest(bytes)))
     }
@@ -126,24 +171,53 @@ pub enum Message {
 }
 
 pub struct SecureChannel {
-    stream: TcpStream,
+    sender: SecureSender,
+    receiver: SecureReceiver,
+}
+
+pub struct SecureSender {
+    stream: OwnedWriteHalf,
     send_cipher: ChaCha20Poly1305,
-    receive_cipher: ChaCha20Poly1305,
     send_counter: u64,
+}
+
+pub struct SecureReceiver {
+    stream: OwnedReadHalf,
+    receive_cipher: ChaCha20Poly1305,
     receive_counter: u64,
 }
 
 impl SecureChannel {
     pub fn new(stream: TcpStream, send_key: &[u8; 32], receive_key: &[u8; 32]) -> Self {
+        let (reader, writer) = stream.into_split();
         Self {
-            stream,
-            send_cipher: ChaCha20Poly1305::new(send_key.into()),
-            receive_cipher: ChaCha20Poly1305::new(receive_key.into()),
-            send_counter: 0,
-            receive_counter: 0,
+            sender: SecureSender {
+                stream: writer,
+                send_cipher: ChaCha20Poly1305::new(send_key.into()),
+                send_counter: 0,
+            },
+            receiver: SecureReceiver {
+                stream: reader,
+                receive_cipher: ChaCha20Poly1305::new(receive_key.into()),
+                receive_counter: 0,
+            },
         }
     }
 
+    pub async fn send(&mut self, message: &Message) -> Result<()> {
+        self.sender.send(message).await
+    }
+
+    pub async fn receive(&mut self) -> Result<Message> {
+        self.receiver.receive().await
+    }
+
+    pub fn into_split(self) -> (SecureSender, SecureReceiver) {
+        (self.sender, self.receiver)
+    }
+}
+
+impl SecureSender {
     pub async fn send(&mut self, message: &Message) -> Result<()> {
         let plaintext = serde_json::to_vec(message)?;
         if plaintext.len() > MAX_FRAME_SIZE {
@@ -160,10 +234,13 @@ impl SecureChannel {
         self.stream.flush().await?;
         Ok(())
     }
+}
 
+impl SecureReceiver {
+    // This future must run to completion; cancelling it requires closing the connection.
     pub async fn receive(&mut self) -> Result<Message> {
         let length = self.stream.read_u32().await? as usize;
-        if length > MAX_FRAME_SIZE + 32 {
+        if !(16..=MAX_FRAME_SIZE + 16).contains(&length) {
             bail!("收到的消息超过最大限制");
         }
         let mut ciphertext = vec![0_u8; length];
@@ -214,6 +291,14 @@ pub fn validate_relative_path(path: &Path) -> Result<()> {
     if path.as_os_str().is_empty() || path.is_absolute() {
         bail!("文件路径必须是非空相对路径");
     }
+    // Enforce Windows separators even in cross-platform protocol tests.
+    let text = path.to_str().context("文件路径不是有效 Unicode")?;
+    if text
+        .split(['/', '\\'])
+        .any(|part| part.is_empty() || part == "." || part == ".." || part.contains(':'))
+    {
+        bail!("文件路径包含不安全组件: {}", path.display());
+    }
     for component in path.components() {
         if !matches!(component, Component::Normal(_)) {
             bail!("文件路径包含不安全组件: {}", path.display());
@@ -237,6 +322,98 @@ mod tests {
         assert!(validate_relative_path(Path::new(r"..\secret.txt")).is_err());
         assert!(validate_relative_path(Path::new(r"C:\secret.txt")).is_err());
         assert!(validate_relative_path(Path::new(r"safe\file.txt")).is_ok());
+    }
+
+    #[test]
+    fn item_limit_counts_all_formats_and_files_and_cannot_be_raised() {
+        let mut item = ClipboardItem::new(
+            Uuid::new_v4(),
+            1,
+            vec![
+                ClipboardFormat::from_bytes("text/plain", b"abc"),
+                ClipboardFormat::from_bytes("custom", b"de"),
+            ],
+            vec![FileEntry {
+                relative_path: "file".into(),
+                size: MAX_ITEM_BYTES - 5,
+                sha256: String::new(),
+                is_directory: false,
+            }],
+        )
+        .unwrap();
+        assert_eq!(
+            item.validate_size(u64::MAX, "test").unwrap(),
+            MAX_ITEM_BYTES
+        );
+        assert!(item.validate_size(MAX_ITEM_BYTES - 1, "test").is_err());
+        item.files[0].size += 1;
+        assert!(item.validate_size(u64::MAX, "test").is_err());
+        item.files[0].size = u64::MAX;
+        assert!(item.payload_bytes().is_err());
+    }
+
+    #[test]
+    fn rejected_item_logs_size_limit_direction_and_id() {
+        use std::io::Write;
+        use std::sync::{Arc, Mutex};
+        #[derive(Clone)]
+        struct LogWriter(Arc<Mutex<Vec<u8>>>);
+        impl Write for LogWriter {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let writer = LogWriter(output.clone());
+        let subscriber = tracing_subscriber::fmt()
+            .without_time()
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+        let item = ClipboardItem::new(
+            Uuid::new_v4(),
+            1,
+            vec![],
+            vec![FileEntry {
+                relative_path: "oversized.bin".into(),
+                size: MAX_ITEM_BYTES + 1,
+                sha256: String::new(),
+                is_directory: false,
+            }],
+        )
+        .unwrap();
+        tracing::subscriber::with_default(subscriber, || {
+            assert!(item.validate_size(u64::MAX, "receive").is_err());
+        });
+        let log = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+        for field in [
+            "WARN",
+            "actual_bytes=52428801",
+            "limit_bytes=52428800",
+            "receive",
+            "已拒绝",
+            &item.id.to_string(),
+        ] {
+            assert!(log.contains(field), "missing {field} in {log}");
+        }
+    }
+
+    #[test]
+    fn decoded_sizes_include_padding_and_multiple_decode_chunks() {
+        for size in [0, 1, 2, 3, 3071, 3072, 3073, 8192] {
+            let item = ClipboardItem::new(
+                Uuid::new_v4(),
+                1,
+                vec![ClipboardFormat::from_bytes("test", &vec![0; size])],
+                vec![],
+            )
+            .unwrap();
+            assert_eq!(item.payload_bytes().unwrap(), size as u64);
+        }
     }
 
     #[test]

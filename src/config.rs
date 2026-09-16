@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 pub const DEFAULT_PORT: u16 = 24817;
 pub const DEFAULT_HISTORY_LIMIT: usize = 20;
-pub const DEFAULT_MAX_ITEM_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+pub const DEFAULT_MAX_ITEM_BYTES: u64 = crate::protocol::MAX_ITEM_BYTES;
 pub const DEFAULT_CACHE_BYTES: u64 = 10 * 1024 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

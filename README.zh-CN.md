@@ -6,7 +6,7 @@
 
 Windows 局域网剪贴板同步工具。推荐直接使用 CLI：两台电脑只需配对一次，即可双向同步文本、HTML、RTF、图片以及文件/目录。
 
-> **平台（v1）：** 仅支持 Windows / macOS，暂不支持 Linux。剪贴板同步目前面向 Windows 10 1809+ / Windows 11。Windows 托盘 UI 需要 [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)，CLI 不需要。程序运行在当前登录用户会话中。
+> **平台（v1）：** 仅支持 Windows，暂不支持 macOS / Linux。剪贴板同步目前面向 Windows 10 1809+ / Windows 11。Windows 托盘 UI 需要 [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)，CLI 不需要。程序运行在当前登录用户会话中。
 
 ## 30 秒开始（CLI）
 
@@ -69,7 +69,7 @@ New-NetFirewallRule -DisplayName "ClipboardShare" `
   "device_name": "ClipboardShare-A",
   "listen_port": 24817,
   "history_limit": 20,
-  "max_item_bytes": 2147483648,
+  "max_item_bytes": 52428800,
   "cache_bytes": 10737418240,
   "pairing_code": "123456",
   "auto_pair": {
@@ -89,7 +89,7 @@ New-NetFirewallRule -DisplayName "ClipboardShare" `
   "device_name": "ClipboardShare-B",
   "listen_port": 24817,
   "history_limit": 20,
-  "max_item_bytes": 2147483648,
+  "max_item_bytes": 52428800,
   "cache_bytes": 10737418240,
   "pairing_code": "123456",
   "auto_pair": {
@@ -152,8 +152,8 @@ $env:CLIPBOARD_SHARE_CONFIG = "D:\ClipboardShare\A\config.json"
 - `auto_pair.enabled`：是否在 `start` 时自动配对。
 - `auto_pair.mode`：A 使用 `listen`，B 使用 `connect`。
 - `auto_pair.peer_address`：B 填 A 的 IP，例如 `192.168.1.10`；也可写 `192.168.1.10:24818`。
-- `max_item_bytes`：单次传输的文件总大小上限，默认 `2 GB`。
-- `cache_bytes`：本地文件缓存上限，默认 `10 GB`。
+- `max_item_bytes`：单次剪贴板项的原始内容总大小上限，默认且最高为 `50 MB`（52,428,800 字节），包含所有文件和解码后的文本/图片格式；可配置更低值。
+- `cache_bytes`：启动时清理完整历史缓存的目标大小，默认 `10 GB`；当前尚不在运行期间持续淘汰完整缓存。
 
 ## 可选：托盘 UI
 
@@ -189,6 +189,14 @@ cargo build --release -p clipboard_share_ui
 - `target\release\clipboard_share.exe` — CLI
 - `target\release\clipboard_share_ui.exe` — 托盘 UI（进程内嵌同步）
 
+## 验证
+
+Windows：`cargo test --locked -p clipboard_share`，UI 编译检查：`cargo check --locked -p clipboard_share_ui`。
+
+Linux 可运行 `python3 tools/test_transport.py --offline`（首次无依赖缓存时去掉 `--offline`），执行真实协议/网络以及提取的采集预算和配置监测回归；Windows 剪贴板与 DPAPI 在该脚本中不可调用，不代替双机实测。
+
+界面安全回归：安装 Playwright 及 Chromium 后运行 `node ui/tests/peer-rendering.mjs`；也可用 `PLAYWRIGHT_MODULE` 指向已有 Playwright 模块。测试使用真实 Chromium，Tauri IPC 为 mock。
+
 ## 功能
 
 - 双向实时同步（文本 / HTML / RTF / PNG 图片 / 文件与目录）
@@ -206,18 +214,18 @@ cargo build --release -p clipboard_share_ui
 2. **内容** — 发送端从本地磁盘按 **512 KB** 一块读取，通过 `FileChunk` 消息逐块发送。
 3. **接收** — 写入 `data\cache\<item_id>\`，校验 SHA-256 后进入本机剪贴板。
 
-**断点续传：** 不支持跨连接续传。`FileChunk` 里的 `offset` 仅用于同一次连接内拼装分块。传输中断后需重新复制文件，从头再传；未收完的缓存目录可能残留，直到被缓存清理删除。
+**断点续传：** 不支持跨连接续传。`FileChunk` 里的 `offset` 仅用于同一次连接内拼装分块。传输中断后需重新复制文件，从头再传；正常断连、超时或校验失败会清理未完成缓存；进程崩溃后的残留由启动时缓存清理处理。
 
 **上限：**
 
 | 限制 | 默认值 | 说明 |
 |------|--------|------|
-| `max_item_bytes` | 2 GB | 单次剪贴板项中所有文件总大小（接收端校验） |
-| `cache_bytes` | 10 GB | 超出后按时间删除最旧的缓存目录 |
+| `max_item_bytes` | 50 MB | 所有文件和解码格式合计，收发两端校验；硬上限 52,428,800 字节 |
+| `cache_bytes` | 10 GB | 启动时超出目标则按时间删除最旧缓存目录 |
 | `FILE_CHUNK_SIZE` | 512 KB | 固定分块大小（不可配置） |
-| `MAX_FRAME_SIZE` | 64 MB | 单条消息帧上限；大文件本体拆成多块传输，但嵌在 `Clipboard` 里的文本/图片元数据须低于此值 |
+| `MAX_FRAME_SIZE` | 约 67.7 MiB | 容纳 50 MiB 内容的 Base64 编码及 1 MiB 元数据；原始内容仍受 50 MB 硬上限约束 |
 
-发送端不会预检 `max_item_bytes`，超限项由对端拒绝。可在 `config.json` 中按需调整。
+大于上限的项目整项拒绝，等于上限允许。发送端在文件哈希前预检大小，网络收发两端再次校验；旧配置即使写了 2 GB，也不能绕过 50 MB 硬上限。拒绝日志写入 `data/logs/clipboard-share.log.*`，包含实际字节数、限制字节数及拒绝原因。
 
 ## 登录后自启（可选）
 
@@ -236,7 +244,9 @@ cargo build --release -p clipboard_share_ui
 ## 行为说明
 
 - 默认只同步连接之后的实时剪贴板变更（避免重连回灌历史导致断连）。
-- 内容哈希与短暂静默用于抑制回环重发。
+- 收发独立进行，支持两端同时传输；每 15 秒发送心跳，90 秒未收到完整消息或单帧发送超过 30 秒会断开重连。断线期间的剪贴板项不会自动补发。
+- 通过 Windows 剪贴板变更序号避免重复采集，仅抑制程序自身写入的变更；A→B→A 的重复复制仍会同步。
+- 配对配置每 500 ms 检查一次，变更后关闭旧连接并按新配置重建；取消配对无需手动重启。修改采集大小配置后需重启同步，使采集端一并采用新值。
 - 远端文件先写入本地缓存并校验 SHA-256，再进入剪贴板；跨设备「剪切」按「复制」处理。
 - 应用私有自定义剪贴板格式可能无法跨设备还原。
 

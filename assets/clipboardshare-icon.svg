@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="back" x1="16" y1="29" x2="76" y2="103" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#087eff"/>
+      <stop offset="1" stop-color="#0643cd"/>
+    </linearGradient>
+    <linearGradient id="middle" x1="30" y1="46" x2="91" y2="118" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#27c4ff"/>
+      <stop offset=".55" stop-color="#078eff"/>
+      <stop offset="1" stop-color="#0761ee"/>
+    </linearGradient>
+    <linearGradient id="front" x1="48" y1="60" x2="112" y2="130" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#99edff"/>
+      <stop offset=".45" stop-color="#49bcfa"/>
+      <stop offset="1" stop-color="#218af0"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="50" y1="60" x2="102" y2="127" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#d9faff" stop-opacity=".85"/>
+      <stop offset="1" stop-color="#75d8ff" stop-opacity=".15"/>
+    </linearGradient>
+    <linearGradient id="clip" x1="66" y1="54" x2="91" y2="70" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f0fdff"/>
+      <stop offset="1" stop-color="#a2e8ff"/>
+    </linearGradient>
+  </defs>
+  <!-- Shared tilt gives the three clipboard layers the reference's depth. -->
+  <g transform="matrix(1 -.34 0 1 0 2)">
+    <rect x="12" y="29" width="64" height="74" rx="15" fill="url(#back)"/>
+    <rect x="28" y="46" width="65" height="74" rx="15" fill="#003eaa" opacity=".16"/>
+    <rect x="28" y="44" width="65" height="74" rx="15" fill="url(#middle)"/>
+    <rect x="46" y="62" width="69" height="71" rx="15" fill="#0061c4" opacity=".18"/>
+    <rect x="46" y="60" width="69" height="71" rx="15" fill="url(#front)" stroke="url(#edge)" stroke-width=".8"/>
+    <!-- The raised clip distinguishes a clipboard from a stack of files. -->
+    <rect x="65" y="55" width="31" height="17" rx="5" fill="#0872c5" opacity=".22"/>
+    <rect x="65" y="52" width="31" height="17" rx="5" fill="url(#clip)"/>
+    <rect x="73" y="57" width="15" height="4" rx="2" fill="#168ee2"/>
+    <g fill="none" stroke="#f3fcff" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M63 87h35m-8-8 8 8-8 8"/>
+      <path d="M98 109H63m8-8-8 8 8 8"/>
+    </g>
+  </g>
+</svg>
