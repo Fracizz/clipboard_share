@@ -122,6 +122,15 @@ pub fn run() {
         return;
     }
 
+    let context = tauri::generate_context!();
+    #[cfg(windows)]
+    let context = {
+        let mut context = context;
+        // Avoid Tauri's default of decoding only the first (16px) ICO frame.
+        context.set_default_window_icon(Some(tauri::include_image!("icons/window-64.png")));
+        context
+    };
+
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_main_window(app);
@@ -152,8 +161,8 @@ pub fn run() {
                 .locale
                 .set_menu_items(show, start, stop, quit);
 
-            // Use the same main application artwork in the tray.
-            let icon = tauri::include_image!("icons/32x32.png");
+            // This image controls only the notification-area tray icon.
+            let icon = tauri::include_image!("icons/tray-32.png");
 
             TrayIconBuilder::with_id("main")
                 .icon(icon)
@@ -221,7 +230,7 @@ pub fn run() {
                 api.prevent_close();
             }
         })
-        .run(tauri::generate_context!());
+        .run(context);
 
     if let Err(error) = result {
         webview2::prompt_runtime_failure(&error.to_string());
