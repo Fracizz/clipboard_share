@@ -185,11 +185,14 @@ els.syncToggle.addEventListener("click", async () => {
 
 $("listen-form").addEventListener("submit", (event) => {
   event.preventDefault();
+  if (els.btnListen.disabled) return;
   withBusy(els.btnListen, async () => {
     const code = els.listenCode.value.trim() || null;
     $("pairing-code-panel").hidden = false;
-    els.listenHint.textContent = code || "······";
-    pairingState = "waitingPeer";
+    els.listenHint.textContent = "······";
+    $("pairing-error").textContent = "";
+    $("pairing-error").hidden = true;
+    pairingState = "startingPairing";
     $("pairing-state").textContent = t(pairingState);
     els.listenCode.disabled = true;
     setMessage("");
@@ -202,6 +205,8 @@ $("listen-form").addEventListener("submit", (event) => {
     } catch (error) {
       pairingState = "pairingFailed";
       els.listenHint.textContent = "—";
+      $("pairing-error").textContent = String(error);
+      $("pairing-error").hidden = false;
       setMessage(String(error), "error");
     } finally {
       els.listenCode.disabled = false;

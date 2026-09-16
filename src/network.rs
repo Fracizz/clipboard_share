@@ -89,11 +89,26 @@ impl NetworkState {
 }
 
 pub async fn pair_listen(config: &mut AppConfig, code: &str) -> Result<()> {
+    pair_listen_with_ready(config, code, |_| {}).await
+}
+
+pub async fn pair_listen_with_ready(
+    config: &mut AppConfig,
+    code: &str,
+    on_ready: impl FnOnce(&str),
+) -> Result<()> {
     let port = config
         .listen_port
         .checked_add(PAIRING_PORT_OFFSET)
         .context("配对端口溢出")?;
-    let listener = TcpListener::bind(("0.0.0.0", port)).await?;
+    let listener = TcpListener::bind(("0.0.0.0", port)).await.map_err(|error| {
+        if error.kind() == std::io::ErrorKind::AddrInUse {
+            anyhow::anyhow!("配对端口 {port} 已被占用，请关闭其他 ClipboardShare 实例或正在运行的 pair-listen 后重试（{error}）")
+        } else {
+            anyhow::anyhow!("无法监听配对端口 {port}：{error}")
+        }
+    })?;
+    on_ready(code);
     println!("配对码：{code}");
     println!("请在另一台电脑执行：clipboard_share pair <本机IP> {code}");
     println!("等待连接，端口 {port}（配对码仅本次有效）...");
@@ -828,6 +843,23 @@ mod tests {
     };
 
     const TEST_KEY: [u8; 32] = [7; 32];
+
+    #[tokio::test]
+    async fn occupied_pairing_port_reports_port_without_announcing_code() {
+        let occupied = TcpListener::bind("0.0.0.0:0").await.unwrap();
+        let port = occupied.local_addr().unwrap().port();
+        let mut config = AppConfig::default();
+        config.listen_port = port - PAIRING_PORT_OFFSET;
+        let mut announced = false;
+        let error = pair_listen_with_ready(&mut config, "012345", |_| announced = true)
+            .await
+            .unwrap_err();
+        assert!(!announced);
+        let message = error.to_string();
+        assert!(message.contains(&port.to_string()));
+        assert!(message.contains("已被占用"));
+        assert!(message.contains("pair-listen"));
+    }
 
     async fn socket_pair() -> (TcpStream, TcpStream) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

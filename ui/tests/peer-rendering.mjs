@@ -57,6 +57,7 @@ try {
     page.on("pageerror", error => errors.push(String(error)));
     await page.addInitScript(({ status }) => {
       window.calls = [];
+      window.listeners = {};
       window.violations = [];
       document.addEventListener("securitypolicyviolation", event => {
         window.violations.push(event.violatedDirective);
@@ -64,11 +65,19 @@ try {
       window.__TAURI__ = {
         core: { invoke: async (command, args) => {
           window.calls.push({ command, args });
+          if (command === "pair_listen") {
+            return new Promise((resolve, reject) => {
+              window.pendingPairing = { code: args.code || "012345", resolve, reject };
+            });
+          }
           if (command === "unpair") status.peers = [];
           // Native IPC serializes each response; do not mutate earlier UI snapshots.
           return structuredClone(status);
         } },
-        event: { listen: async () => () => {} },
+        event: { listen: async (name, callback) => {
+          window.listeners[name] = callback;
+          return () => {};
+        } },
       };
     }, { status });
     await page.goto(`http://127.0.0.1:${server.address().port}/${policy ? "?csp" : ""}`);
@@ -113,9 +122,39 @@ try {
       { command: "unpair", args: { deviceId: peer.device_id } });
     assert.ok((await page.locator("#message").textContent()).includes(peer.device_name));
     assert.equal(await page.locator("#message *").count(), 0);
+
+    await page.locator('[data-page="pairing"]').click();
+    await page.locator("#btn-listen").click();
+    await page.waitForFunction(() => window.pendingPairing);
+    assert.equal(await page.locator("#btn-listen").isDisabled(), true);
+    assert.equal(await page.locator("#listen-hint").textContent(), "······");
+    // Submitting via Enter/programmatic submit must not start a second listener.
+    await page.locator("#listen-form").evaluate(form => form.requestSubmit());
+    assert.equal(await page.evaluate(() => window.calls.filter(c => c.command === "pair_listen").length), 1);
+    const conflict = "配对端口 24818 已被占用，请关闭其他 ClipboardShare 实例或正在运行的 pair-listen 后重试";
+    await page.evaluate(error => window.pendingPairing.reject(error), conflict);
+    await page.waitForFunction(() => !document.querySelector("#btn-listen").disabled);
+    assert.equal(await page.locator("#listen-hint").textContent(), "—");
+    assert.equal(await page.locator("#pairing-error").isVisible(), true);
+    assert.equal(await page.locator("#pairing-error").textContent(), conflict);
+
+    // Retry with a leading-zero custom code, announcing it only after bind succeeds.
+    await page.locator("#listen-code").fill("001234");
+    await page.locator("#btn-listen").click();
+    await page.waitForFunction(() => window.calls.filter(c => c.command === "pair_listen").length === 2);
+    assert.equal(await page.locator("#pairing-error").isVisible(), false);
+    assert.equal(await page.locator("#listen-hint").textContent(), "······");
+    await page.evaluate(() => window.listeners["pairing-started"]({ payload: window.pendingPairing.code }));
+    assert.equal(await page.locator("#listen-hint").textContent(), "001234");
+    assert.equal(await page.locator("#btn-listen").isDisabled(), true);
+    await page.evaluate(() => window.pendingPairing.resolve(window.pendingPairing.code));
+    await page.waitForFunction(() => !document.querySelector("#btn-listen").disabled);
+    assert.equal(await page.locator("#pairing-state").textContent(), "配对完成");
+    assert.equal(await page.locator("#listen-code").isDisabled(), false);
+
     assert.deepEqual(errors, []);
     await page.close();
-    console.log(`PASS: literal peer metadata, locale rerender, unpair, local assets (CSP ${policy ? "on" : "off"})`);
+    console.log(`PASS: peer metadata, locale, unpair, pairing conflict/retry/readiness, duplicate submit, local assets (CSP ${policy ? "on" : "off"})`);
   }
 } finally {
   await browser?.close();

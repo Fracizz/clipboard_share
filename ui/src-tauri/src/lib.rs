@@ -48,8 +48,9 @@ async fn pair_listen(app: tauri::AppHandle, code: Option<String>) -> Result<Stri
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(clipboard_share::config::random_pairing_code);
     clipboard_share::validate_code(&resolved).map_err(map_err)?;
-    let _ = app.emit("pairing-started", &resolved);
-    SyncService::pair_listen(Some(resolved.clone()))
+    SyncService::pair_listen_with_ready(Some(resolved.clone()), |code| {
+        let _ = app.emit("pairing-started", code);
+    })
         .await
         .map_err(map_err)?;
     let _ = app.emit("pairing-finished", &resolved);
@@ -151,8 +152,8 @@ pub fn run() {
                 .locale
                 .set_menu_items(show, start, stop, quit);
 
-            // A dedicated compact mark stays readable in the Windows tray.
-            let icon = tauri::include_image!("icons/tray-32.png");
+            // Use the same main application artwork in the tray.
+            let icon = tauri::include_image!("icons/32x32.png");
 
             TrayIconBuilder::with_id("main")
                 .icon(icon)

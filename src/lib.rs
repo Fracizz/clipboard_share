@@ -7,6 +7,7 @@ pub mod autostart;
 pub mod clipboard;
 pub mod config;
 pub mod network;
+mod pairing;
 pub mod process_control;
 pub mod protocol;
 pub mod service;

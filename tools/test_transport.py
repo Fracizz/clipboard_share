@@ -36,6 +36,7 @@ fn dpapi_unprotect(_: &[u8]) -> Result<Vec<u8>> { bail!("DPAPI unavailable in tr
     source = '''#![allow(dead_code)]
 #[path = "PROTOCOL_PATH"] mod protocol;
 #[path = "NETWORK_PATH"] mod network;
+#[path = "PAIRING_PATH"] mod pairing;
 mod config;
 mod clipboard {
     use std::path::{Path, PathBuf};
@@ -49,6 +50,7 @@ mod clipboard {
     }
 }
 '''
+    source = source.replace("PAIRING_PATH", (repo / "src/pairing.rs").as_posix())
     source = source.replace("PROTOCOL_PATH", (repo / "src/protocol.rs").as_posix())
     source = source.replace("NETWORK_PATH", (repo / "src/network.rs").as_posix())
     # Extract platform-neutral implementations verbatim; do not reimplement logic in tests.

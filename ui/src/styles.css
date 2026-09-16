@@ -134,6 +134,7 @@ input::placeholder { color: #aaaeb8; }
 .pairing-code-panel { margin-top: 20px; border-top: 1px solid #eceef4; padding-top: 20px; text-align: center; color: #9399a6; font-size: 10px; }
 .pairing-code-panel output { display: block; margin-top: 12px; color: var(--blue); font: 30px "SFMono-Regular", Consolas, monospace; letter-spacing: 7px; }
 .pairing-code-panel p { margin-bottom: 0; }
+.pairing-code-panel .pairing-error { color: #d9304f; line-height: 1.6; overflow-wrap: anywhere; }
 .about-card { padding: 42px 25px 20px; text-align: center; }
 .app-icon.large { width: 70px; height: 70px; border-radius: 18px; margin: 0 auto 22px; }
 .about-card h2 { color: #30333d; font-size: 23px; letter-spacing: -.6px; }

@@ -6,14 +6,15 @@ clipboard shape with the supplied reference's opaque blue gradients: three
 layers, a clipboard clip, and two inset content lines, without glass or arrows.
 The exact edit prompt is saved in `clipboardshare-matte-prompt.txt`.
 
-Regenerate the frontend PNG, desktop PNG/ICO/ICNS files, compact tray icons,
+Regenerate the frontend PNG, desktop PNG/ICO/ICNS files, tray icons,
 and light/dark preview with:
 
 ```sh
 uv run tools/generate_icons.py
 ```
 
-`clipboardshare-tray.svg` is the editable compact version for small sizes.
+All sizes, including the tray and small ICO frames, use the same master PNG.
+`clipboardshare-tray.svg` is the earlier compact design, retained for reference only.
 `clipboardshare-icon.svg` is the earlier vector design, retained as a source
 archive; it is no longer used to generate application icons.
 `clipboardshare-glass.png` preserves the previous glass variant for reference.

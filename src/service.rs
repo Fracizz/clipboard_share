@@ -148,17 +148,28 @@ impl SyncService {
     }
 
     pub async fn pair_listen(code: Option<String>) -> Result<String> {
-        let mut config = AppConfig::load_or_create()?;
+        Self::pair_listen_with_ready(code, |_| {}).await
+    }
+
+    pub async fn pair_listen_with_ready(
+        code: Option<String>,
+        on_ready: impl FnOnce(&str),
+    ) -> Result<String> {
         let code = code.unwrap_or_else(crate::config::random_pairing_code);
         validate_code(&code)?;
-        network::pair_listen(&mut config, &code).await?;
-        Ok(code)
+        crate::pairing::coordinator().manual(async {
+            let mut config = AppConfig::load_or_create()?;
+            network::pair_listen_with_ready(&mut config, &code, on_ready).await?;
+            Ok(code)
+        }).await
     }
 
     pub async fn pair_connect(address: String, code: String) -> Result<()> {
         validate_code(&code)?;
-        let mut config = AppConfig::load_or_create()?;
-        network::pair_connect(&mut config, &address, &code).await
+        crate::pairing::coordinator().manual(async {
+            let mut config = AppConfig::load_or_create()?;
+            network::pair_connect(&mut config, &address, &code).await
+        }).await
     }
 
     pub fn unpair(device_id: Uuid) -> Result<bool> {
@@ -220,7 +231,7 @@ pub async fn run_daemon(stopping: Arc<AtomicBool>) -> Result<()> {
 
             let operation = async {
                 tokio::select! {
-                    result = auto_pair_from_config(&mut config) => result?,
+                    result = crate::pairing::coordinator().automatic(auto_pair_from_config(&mut config)) => result?,
                     _ = instance.wait_for_stop() => {
                         info!("自动配对期间收到后台停止请求");
                         return Ok(());
@@ -230,6 +241,8 @@ pub async fn run_daemon(stopping: Arc<AtomicBool>) -> Result<()> {
                         return Ok(());
                     }
                 }
+                // Manual pairing may have interrupted startup pairing; reload its latest configuration.
+                config = AppConfig::load_or_create()?;
                 // 仅同步连接后的实时剪贴板变更，避免重连时回灌整段历史导致断连。
                 let state = NetworkState::new(config.clone());
                 let (capture_sender, mut capture_receiver) = mpsc::channel(64);
