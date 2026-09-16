@@ -2,6 +2,8 @@
 /dist/
 /packages/
 **/node_modules/
+**/__pycache__/
+*.pyc
 **/*.log
 **/data/
 .idea/
