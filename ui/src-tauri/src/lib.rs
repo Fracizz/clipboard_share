@@ -126,8 +126,8 @@ pub fn run() {
     #[cfg(windows)]
     let context = {
         let mut context = context;
-        // Avoid Tauri's default of decoding only the first (16px) ICO frame.
-        context.set_default_window_icon(Some(tauri::include_image!("icons/window-64.png")));
+        // Use the master artwork at high resolution instead of the first (16px) ICO frame.
+        context.set_default_window_icon(Some(tauri::include_image!("icons/128x128@2x.png")));
         context
     };
 
@@ -161,8 +161,8 @@ pub fn run() {
                 .locale
                 .set_menu_items(show, start, stop, quit);
 
-            // This image controls only the notification-area tray icon.
-            let icon = tauri::include_image!("icons/tray-32.png");
+            // The same master artwork, with enough pixels for high-DPI notification areas.
+            let icon = tauri::include_image!("icons/tray-64.png");
 
             TrayIconBuilder::with_id("main")
                 .icon(icon)
