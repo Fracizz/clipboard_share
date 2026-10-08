@@ -141,6 +141,8 @@ input::placeholder { color: #aaaeb8; }
 .about-card > p { color: #818796; }
 .version { display: inline-block; margin: 12px 0 30px; padding: 5px 9px; border-radius: 5px; background: #f4f5f8; color: #969eab; font-size: 10px; }
 .about-detail { display: flex; align-items: center; gap: 14px; padding-top: 16px; border-top: 1px solid var(--line); color: #939cab; text-align: left; font-size: 11px; line-height: 1.8; }
+.about-group { margin-top: 20px; }
+.external-arrow { color: #939cab; font-size: 17px; flex-shrink: 0; }
 .message { position: fixed; bottom: 20px; left: calc(50% + 112px); transform: translateX(-50%); margin: 0; padding: 12px 18px; max-width: min(520px, calc(100vw - 260px)); border: 1px solid #e0e4ec; background: #fffffff5; color: #667085; box-shadow: 0 6px 24px #28344918; border-radius: 9px; font-size: 11px; overflow-wrap: anywhere; z-index: 10; }
 .message.ok { color: #268563; border-color: #cfebdd; }
 .message.error { color: #c74d5c; border-color: #f1d7de; }

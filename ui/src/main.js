@@ -22,6 +22,11 @@ let lastStatus = null;
 let syncBusy = false;
 let messageTimer;
 let pairingState = "waitingPeer";
+let appVersion = null;
+
+function renderAppVersion() {
+  $("app-version").textContent = appVersion ? t("appVersion", appVersion) : "—";
+}
 
 function setMessage(text, kind = "") {
   clearTimeout(messageTimer);
@@ -162,6 +167,7 @@ async function applyLocale(next) {
   renderNavigation();
   if (lastStatus) renderStatus(lastStatus, true);
   $("pairing-state").textContent = t(pairingState);
+  renderAppVersion();
   setMessage("");
   try { await invoke("set_locale", { locale: getLocale() }); }
   catch { /* Tray locale sync is best-effort. */ }
@@ -231,6 +237,12 @@ $("connect-form").addEventListener("submit", (event) => {
 document.querySelectorAll("[data-page], [data-go]").forEach((button) => {
   button.addEventListener("click", () => showPage(button.dataset.page || button.dataset.go, true));
 });
+document.querySelectorAll("[data-project-link]").forEach((button) => {
+  button.addEventListener("click", () => withBusy(button, async () => {
+    try { await invoke("open_project_link", { target: button.dataset.projectLink }); }
+    catch { setMessage(t("openLinkFailed"), "error"); }
+  }));
+});
 els.language.addEventListener("change", () => applyLocale(els.language.value));
 els.search.addEventListener("input", renderNavigation);
 els.search.addEventListener("keydown", (event) => {
@@ -250,6 +262,10 @@ loadLocale();
 applyStaticI18n();
 els.language.value = getLocale();
 renderNavigation();
+try {
+  appVersion = await invoke("get_app_version");
+  renderAppVersion();
+} catch (error) { setMessage(String(error), "error"); }
 try {
   await listen("pairing-started", (event) => {
     els.listenHint.textContent = event.payload;

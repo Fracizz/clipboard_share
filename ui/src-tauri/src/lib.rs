@@ -31,6 +31,28 @@ fn get_status() -> Result<AppStatus, String> {
 }
 
 #[tauri::command]
+fn get_app_version(app: tauri::AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
+// Keep native URL opening restricted to the project's public pages.
+fn project_url(target: &str) -> Option<&'static str> {
+    match target {
+        "repository" => Some("https://github.com/Fracizz/clipboard_share"),
+        "latest" => Some("https://github.com/Fracizz/clipboard_share/releases/latest"),
+        "releases" => Some("https://github.com/Fracizz/clipboard_share/releases"),
+        "issues" => Some("https://github.com/Fracizz/clipboard_share/issues"),
+        _ => None,
+    }
+}
+
+#[tauri::command]
+fn open_project_link(target: String) -> Result<(), String> {
+    let url = project_url(&target).ok_or("Unknown project link")?;
+    open::that(url).map_err(map_err)
+}
+
+#[tauri::command]
 fn start_sync(state: State<'_, AppState>) -> Result<AppStatus, String> {
     state.sync.lock().map_err(map_err)?.start().map_err(map_err)?;
     SyncService::status().map_err(map_err)
@@ -141,6 +163,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_status,
+            get_app_version,
+            open_project_link,
             start_sync,
             stop_sync,
             pair_listen,

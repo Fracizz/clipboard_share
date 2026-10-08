@@ -65,6 +65,7 @@ try {
       window.__TAURI__ = {
         core: { invoke: async (command, args) => {
           window.calls.push({ command, args });
+          if (command === "get_app_version") return "0.1.5";
           if (command === "pair_listen") {
             return new Promise((resolve, reject) => {
               window.pendingPairing = { code: args.code || "012345", resolve, reject };
