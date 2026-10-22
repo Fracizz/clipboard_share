@@ -1,18 +1,14 @@
-use std::{
-    sync::Mutex,
-    thread,
-    time::Duration,
-};
+use std::{sync::Mutex, thread, time::Duration};
 
 mod i18n;
 mod webview2;
 
-use clipboard_share::{AppStatus, SyncService, service::init_logging_global};
-use i18n::{Locale, UiLocale, tr};
+use clipboard_share::{service::init_logging_global, AppStatus, SyncService};
+use i18n::{tr, Locale, UiLocale};
 use tauri::{
-    Emitter, Manager, State,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Emitter, Manager, State,
 };
 use uuid::Uuid;
 
@@ -54,13 +50,23 @@ fn open_project_link(target: String) -> Result<(), String> {
 
 #[tauri::command]
 fn start_sync(state: State<'_, AppState>) -> Result<AppStatus, String> {
-    state.sync.lock().map_err(map_err)?.start().map_err(map_err)?;
+    state
+        .sync
+        .lock()
+        .map_err(map_err)?
+        .start()
+        .map_err(map_err)?;
     SyncService::status().map_err(map_err)
 }
 
 #[tauri::command]
 fn stop_sync(state: State<'_, AppState>) -> Result<AppStatus, String> {
-    let _ = state.sync.lock().map_err(map_err)?.stop().map_err(map_err)?;
+    let _ = state
+        .sync
+        .lock()
+        .map_err(map_err)?
+        .stop()
+        .map_err(map_err)?;
     SyncService::status().map_err(map_err)
 }
 
@@ -73,8 +79,8 @@ async fn pair_listen(app: tauri::AppHandle, code: Option<String>) -> Result<Stri
     SyncService::pair_listen_with_ready(Some(resolved.clone()), |code| {
         let _ = app.emit("pairing-started", code);
     })
-        .await
-        .map_err(map_err)?;
+    .await
+    .map_err(map_err)?;
     let _ = app.emit("pairing-finished", &resolved);
     Ok(resolved)
 }
@@ -193,29 +199,27 @@ pub fn run() {
                 .tooltip("ClipboardShare")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| {
-                    match event.id().as_ref() {
-                        "show" => show_main_window(app),
-                        "start" => {
-                            if let Ok(state) = app.state::<AppState>().sync.lock() {
-                                let _ = state.start();
-                            }
-                            update_tray_tooltip(app);
-                            let _ = app.emit("status-changed", ());
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "show" => show_main_window(app),
+                    "start" => {
+                        if let Ok(state) = app.state::<AppState>().sync.lock() {
+                            let _ = state.start();
                         }
-                        "stop" => {
-                            if let Ok(state) = app.state::<AppState>().sync.lock() {
-                                let _ = state.stop();
-                            }
-                            update_tray_tooltip(app);
-                            let _ = app.emit("status-changed", ());
-                        }
-                        "quit" => {
-                            let state = app.state::<AppState>();
-                            quit_app(app, &state);
-                        }
-                        _ => {}
+                        update_tray_tooltip(app);
+                        let _ = app.emit("status-changed", ());
                     }
+                    "stop" => {
+                        if let Ok(state) = app.state::<AppState>().sync.lock() {
+                            let _ = state.stop();
+                        }
+                        update_tray_tooltip(app);
+                        let _ = app.emit("status-changed", ());
+                    }
+                    "quit" => {
+                        let state = app.state::<AppState>();
+                        quit_app(app, &state);
+                    }
+                    _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
                     if let TrayIconEvent::Click {
@@ -239,11 +243,9 @@ pub fn run() {
             update_tray_tooltip(app.handle());
 
             let app_handle = app.handle().clone();
-            thread::spawn(move || {
-                loop {
-                    thread::sleep(Duration::from_secs(2));
-                    update_tray_tooltip(&app_handle);
-                }
+            thread::spawn(move || loop {
+                thread::sleep(Duration::from_secs(2));
+                update_tray_tooltip(&app_handle);
             });
 
             Ok(())

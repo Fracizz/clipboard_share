@@ -66,7 +66,7 @@ impl SyncService {
             device_name: config.device_name,
             listen_port: config.listen_port,
             pairing_port: config.listen_port.checked_add(1).context("配对端口溢出")?,
-            running: process_control::is_running(config.device_id),
+            running: process_control::is_running(),
             peers: config
                 .peers
                 .into_iter()
@@ -81,14 +81,12 @@ impl SyncService {
     }
 
     pub fn is_running() -> Result<bool> {
-        let config = AppConfig::load_or_create()?;
-        Ok(process_control::is_running(config.device_id))
+        Ok(process_control::is_running())
     }
 
     pub fn start(&self) -> Result<()> {
-        let config = AppConfig::load_or_create()?;
-        if process_control::is_running(config.device_id) {
-            bail!("ClipboardShare 已在运行");
+        if process_control::is_running() {
+            bail!("{}", process_control::ALREADY_RUNNING);
         }
 
         let mut join = self.join.lock().expect("sync join mutex poisoned");
@@ -100,6 +98,8 @@ impl SyncService {
 
         self.stopping.store(false, Ordering::SeqCst);
         let stopping = self.stopping.clone();
+        let startup_error = Arc::new(Mutex::new(None::<String>));
+        let reported_error = startup_error.clone();
         let handle = thread::Builder::new()
             .name("clipboard-share-sync".into())
             .spawn(move || {
@@ -109,11 +109,15 @@ impl SyncService {
                 {
                     Ok(runtime) => runtime,
                     Err(error) => {
+                        *reported_error.lock().expect("startup error mutex poisoned") =
+                            Some(error.to_string());
                         error!(%error, "无法创建同步运行时");
                         return;
                     }
                 };
                 if let Err(error) = runtime.block_on(run_daemon(stopping)) {
+                    *reported_error.lock().expect("startup error mutex poisoned") =
+                        Some(error.to_string());
                     error!(%error, "同步任务退出");
                 }
             })
@@ -122,20 +126,24 @@ impl SyncService {
         // 等待实例锁建立，便于 UI 立刻读到 running。
         for _ in 0..50 {
             if join.as_ref().is_some_and(|handle| handle.is_finished()) {
-                bail!("同步线程启动失败，请检查 data\\logs");
+                let message = startup_error
+                    .lock()
+                    .expect("startup error mutex poisoned")
+                    .take()
+                    .unwrap_or_else(|| "同步线程启动失败".to_owned());
+                bail!(crate::config::with_log_hint(&message));
             }
-            if process_control::is_running(config.device_id) {
+            if process_control::is_running() {
                 return Ok(());
             }
             thread::sleep(Duration::from_millis(50));
         }
-        bail!("同步启动超时，请检查 data\\logs")
+        bail!(crate::config::with_log_hint("同步启动超时"))
     }
 
     pub fn stop(&self) -> Result<bool> {
-        let config = AppConfig::load_or_create()?;
         self.stopping.store(true, Ordering::SeqCst);
-        let stopped = process_control::request_stop(config.device_id)?;
+        let stopped = process_control::request_stop()?;
         if let Some(handle) = self.join.lock().expect("sync join mutex poisoned").take() {
             let _ = handle.join();
         }
@@ -143,8 +151,7 @@ impl SyncService {
     }
 
     pub fn request_stop_external() -> Result<bool> {
-        let config = AppConfig::load_or_create()?;
-        process_control::request_stop(config.device_id)
+        process_control::request_stop()
     }
 
     pub async fn pair_listen(code: Option<String>) -> Result<String> {
@@ -157,19 +164,23 @@ impl SyncService {
     ) -> Result<String> {
         let code = code.unwrap_or_else(crate::config::random_pairing_code);
         validate_code(&code)?;
-        crate::pairing::coordinator().manual(async {
-            let mut config = AppConfig::load_or_create()?;
-            network::pair_listen_with_ready(&mut config, &code, on_ready).await?;
-            Ok(code)
-        }).await
+        crate::pairing::coordinator()
+            .manual(async {
+                let mut config = AppConfig::load_or_create()?;
+                network::pair_listen_with_ready(&mut config, &code, on_ready).await?;
+                Ok(code)
+            })
+            .await
     }
 
     pub async fn pair_connect(address: String, code: String) -> Result<()> {
         validate_code(&code)?;
-        crate::pairing::coordinator().manual(async {
-            let mut config = AppConfig::load_or_create()?;
-            network::pair_connect(&mut config, &address, &code).await
-        }).await
+        crate::pairing::coordinator()
+            .manual(async {
+                let mut config = AppConfig::load_or_create()?;
+                network::pair_connect(&mut config, &address, &code).await
+            })
+            .await
     }
 
     pub fn unpair(device_id: Uuid) -> Result<bool> {
@@ -220,7 +231,7 @@ pub fn init_logging_global(also_stderr: bool) -> Result<()> {
 
 pub async fn run_daemon(stopping: Arc<AtomicBool>) -> Result<()> {
     let mut config = AppConfig::load_or_create()?;
-    let instance = process_control::InstanceControl::create(config.device_id)?;
+    let instance = process_control::InstanceControl::create()?;
     let apartment = windows_runtime::ClipboardApartment::initialize()?;
     let local = tokio::task::LocalSet::new();
 

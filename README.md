@@ -108,13 +108,18 @@ Start on both PCs from the directory containing `config.json`:
 .\clipboard_share.exe status
 ```
 
-The repository includes the same templates at `portable\A\config.json` and `portable\B\config.json`. Build portable packages with:
+The same templates are in the repository at `portable\config.listen.example.json` and `portable\config.connect.example.json`. Build the portable package with:
 
 ```powershell
 .\build-portable.ps1
 ```
 
-This creates `packages\ClipboardShare-A.zip` and `packages\ClipboardShare-B.zip`. After extracting, confirm the IP and pairing code in the A/B configuration.
+This creates two archives. Neither includes `config.json`. The first `start` on each PC creates one with a unique `device_id`.
+
+- `packages\ClipboardShare-CLI.zip`: command-line build, `clipboard_share.exe` only.
+- `packages\ClipboardShare-UI.zip`: tray UI build, which also includes the command-line program.
+
+For automatic pairing, copy the listen template to `config.json` on one PC and the connect template on the other, then set the connect PC's `peer_address` to the listen PC's LAN IP and keep `pairing_code` the same.
 
 ## Common CLI commands
 
@@ -140,7 +145,7 @@ Config lookup order:
 Cache and logs are stored under `data\` beside the config: file cache in `data\cache\`, logs in `data\logs\`. Example:
 
 ```powershell
-$env:CLIPBOARD_SHARE_CONFIG = "D:\ClipboardShare\A\config.json"
+$env:CLIPBOARD_SHARE_CONFIG = "D:\ClipboardShare\config.json"
 .\clipboard_share.exe status
 ```
 

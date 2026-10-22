@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    io::ErrorKind,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -114,30 +115,47 @@ pub async fn pair_listen_with_ready(
     println!("等待连接，端口 {port}（配对码仅本次有效）...");
 
     // 短超时循环，便于后台 stop 取消自动配对。
+    // 探测连接或半开连接不能结束本次配对码，继续等到真正的配对请求。
     let deadline = tokio::time::Instant::now() + Duration::from_secs(300);
-    let (mut stream, address) = loop {
+    let (mut stream, address, intro) = loop {
         if tokio::time::Instant::now() >= deadline {
             bail!("等待配对超时");
         }
-        match tokio::time::timeout(Duration::from_secs(1), listener.accept()).await {
-            Ok(Ok(connection)) => break connection,
-            Ok(Err(error)) => return Err(error.into()),
-            Err(_) => continue,
+        let (mut stream, address) =
+            match tokio::time::timeout(Duration::from_secs(1), listener.accept()).await {
+                Ok(Ok(connection)) => connection,
+                Ok(Err(error)) => return Err(error.into()),
+                Err(_) => continue,
+            };
+        match read_pair_intro(&mut stream).await {
+            PairIntroRead::Ready(intro) => break (stream, address, intro),
+            PairIntroRead::Retry => continue,
         }
     };
-    let intro: PairIntro = read_plain(&mut stream).await?;
     let client_id = intro.device_id.to_string();
     let (state, outbound) = Spake2::<Ed25519Group>::start_b(
         &Password::new(code.as_bytes()),
         &Identity::new(client_id.as_bytes()),
         &Identity::new(b"clipboard-share-pairing-server"),
     );
-    let peer_message = BASE64
-        .decode(intro.spake_message)
-        .context("对端 SPAKE2 消息损坏")?;
-    let shared = state
-        .finish(&peer_message)
-        .map_err(|_| anyhow::anyhow!("SPAKE2 配对失败"))?;
+    let peer_message = match BASE64.decode(intro.spake_message) {
+        Ok(message) => message,
+        Err(error) => {
+            warn!(%error, "对端 SPAKE2 消息损坏");
+            let message = crate::config::with_log_hint("配对数据无效，请重新创建配对码");
+            reject_pairing(&mut stream, &message).await;
+            bail!("{message}");
+        }
+    };
+    let shared = match state.finish(&peer_message) {
+        Ok(shared) => shared,
+        Err(error) => {
+            warn!(%error, "配对数据无效");
+            let message = crate::config::with_log_hint("配对数据无效，请重新创建配对码");
+            reject_pairing(&mut stream, &message).await;
+            bail!("{message}");
+        }
+    };
     let key = derive_transport_key(&shared, b"paired-device-key")?;
     let confirmation = proof(&key, config.device_id, b"pair-server");
     write_plain(
@@ -150,7 +168,16 @@ pub async fn pair_listen_with_ready(
         },
     )
     .await?;
-    let finish: PairFinish = read_plain(&mut stream).await?;
+    let finish: PairFinish = read_plain(&mut stream).await.map_err(|error| {
+        if peer_closed(&error) {
+            anyhow::anyhow!(
+                "{}",
+                crate::config::with_log_hint("对方在确认前断开，请重新连接")
+            )
+        } else {
+            error
+        }
+    })?;
     if !verify_proof(&key, intro.device_id, b"pair-client", &finish.confirmation) {
         bail!("配对确认失败，配对码可能不一致");
     }
@@ -190,8 +217,11 @@ pub async fn pair_connect(config: &mut AppConfig, address: &str, code: &str) -> 
             spake_message: BASE64.encode(outbound),
         },
     )
-    .await?;
-    let reply: PairReply = read_plain(&mut stream).await?;
+    .await
+    .map_err(|error| explain_pairing_close(error, &host))?;
+    let reply: PairReply = read_plain(&mut stream)
+        .await
+        .map_err(|error| explain_pairing_close(error, &host))?;
 
     // 重新以服务端真实身份启动会产生不同随机消息，不能继续；协议约定服务端固定身份。
     let peer_message = BASE64
@@ -210,7 +240,8 @@ pub async fn pair_connect(config: &mut AppConfig, address: &str, code: &str) -> 
             confirmation: proof(&key, config.device_id, b"pair-client"),
         },
     )
-    .await?;
+    .await
+    .map_err(|error| explain_pairing_close(error, &host))?;
 
     let normal_address = if address.contains(':') {
         let host_only = address
@@ -324,7 +355,14 @@ async fn connect_connection(
 }
 
 async fn accept_connection(state: NetworkState, mut stream: TcpStream) -> Result<()> {
-    let hello: ConnectionHello = read_plain(&mut stream).await?;
+    let bytes = read_frame(&mut stream).await?;
+    if serde_json::from_slice::<PairIntro>(&bytes).is_ok() {
+        let message =
+            crate::config::with_log_hint("这是同步端口。地址只填对方 IP，并让对方先创建配对码");
+        reject_pairing(&mut stream, &message).await;
+        bail!("{message}");
+    }
+    let hello: ConnectionHello = decode_handshake(&bytes)?;
     if hello.version != PROTOCOL_VERSION {
         bail!("不支持的协议版本 {}", hello.version);
     }
@@ -799,6 +837,79 @@ fn session_keys(
     ))
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct HandshakeFailure {
+    error: String,
+}
+
+enum PairIntroRead {
+    Ready(PairIntro),
+    Retry,
+}
+
+async fn read_pair_intro(stream: &mut TcpStream) -> PairIntroRead {
+    let bytes = match read_frame(stream).await {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            warn!(%error, "配对连接在收到请求前结束");
+            return PairIntroRead::Retry;
+        }
+    };
+    match serde_json::from_slice::<PairIntro>(&bytes) {
+        Ok(intro) => PairIntroRead::Ready(intro),
+        Err(error) => {
+            warn!(%error, "忽略无法识别的配对连接");
+            let message = crate::config::with_log_hint("无法识别配对请求");
+            reject_pairing(stream, &message).await;
+            PairIntroRead::Retry
+        }
+    }
+}
+
+async fn reject_pairing(stream: &mut TcpStream, message: &str) {
+    let failure = HandshakeFailure {
+        error: message.to_owned(),
+    };
+    if let Err(error) = write_plain(stream, &failure).await {
+        warn!(%error, "无法向对端发送配对失败原因");
+    }
+}
+
+fn peer_closed(error: &anyhow::Error) -> bool {
+    for err in error.chain() {
+        if let Some(io_error) = err.downcast_ref::<std::io::Error>()
+            && matches!(
+                io_error.kind(),
+                ErrorKind::UnexpectedEof
+                    | ErrorKind::ConnectionReset
+                    | ErrorKind::ConnectionAborted
+                    | ErrorKind::BrokenPipe
+            )
+        {
+            return true;
+        }
+        if err
+            .to_string()
+            .to_ascii_lowercase()
+            .contains("unexpected end of file")
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn explain_pairing_close(error: anyhow::Error, host: &str) -> anyhow::Error {
+    if peer_closed(&error) {
+        anyhow::anyhow!(
+            "{}",
+            crate::config::with_log_hint(&format!("无法连接 {host}，对方已断开"))
+        )
+    } else {
+        error
+    }
+}
+
 async fn write_plain<T: Serialize>(stream: &mut TcpStream, value: &T) -> Result<()> {
     let bytes = serde_json::to_vec(value)?;
     if bytes.len() > MAX_HANDSHAKE_SIZE {
@@ -814,7 +925,7 @@ async fn write_plain<T: Serialize>(stream: &mut TcpStream, value: &T) -> Result<
     Ok(())
 }
 
-async fn read_plain<T: DeserializeOwned>(stream: &mut TcpStream) -> Result<T> {
+async fn read_frame(stream: &mut TcpStream) -> Result<Vec<u8>> {
     tokio::time::timeout(IO_TIMEOUT, async {
         let length = stream.read_u32().await? as usize;
         if length > MAX_HANDSHAKE_SIZE {
@@ -822,10 +933,27 @@ async fn read_plain<T: DeserializeOwned>(stream: &mut TcpStream) -> Result<T> {
         }
         let mut bytes = vec![0_u8; length];
         stream.read_exact(&mut bytes).await?;
-        Ok(serde_json::from_slice(&bytes)?)
+        Ok(bytes)
     })
     .await
     .context("接收握手消息超时")?
+}
+
+fn decode_handshake<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
+    if let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes)
+        && let Some(object) = value.as_object()
+        && object.len() == 1
+        && let Some(message) = object.get("error").and_then(|item| item.as_str())
+        && (1..=300).contains(&message.chars().count())
+    {
+        bail!("{message}");
+    }
+    Ok(serde_json::from_slice(bytes)?)
+}
+
+async fn read_plain<T: DeserializeOwned>(stream: &mut TcpStream) -> Result<T> {
+    let bytes = read_frame(stream).await?;
+    decode_handshake(&bytes)
 }
 
 pub fn default_pairing_port() -> u16 {
@@ -1042,6 +1170,55 @@ mod tests {
             tokio::time::advance(IO_TIMEOUT + Duration::from_secs(1)),
         );
         assert!(result.unwrap_err().to_string().contains("接收握手消息超时"));
+    }
+
+    #[tokio::test]
+    async fn closed_pairing_peer_is_explained_without_raw_io_text() {
+        let (mut local, peer) = socket_pair().await;
+        drop(peer);
+        let error = read_plain::<PairReply>(&mut local).await.unwrap_err();
+        let message = explain_pairing_close(error, "192.168.252.107:24818").to_string();
+        assert!(message.contains("192.168.252.107:24818"));
+        assert!(message.contains("对方已断开"));
+        assert!(message.contains("请检查 data\\logs"));
+        assert!(!message.to_ascii_lowercase().contains("end of file"));
+    }
+
+    #[tokio::test]
+    async fn sync_port_tells_pairing_client_why_it_closed() {
+        let (mut client, server) = socket_pair().await;
+        let intro = PairIntro {
+            device_id: Uuid::new_v4(),
+            device_name: "peer".into(),
+            spake_message: "abc".into(),
+        };
+        write_plain(&mut client, &intro).await.unwrap();
+        let (server_result, client_result) = tokio::join!(
+            accept_connection(NetworkState::new(AppConfig::default()), server),
+            read_plain::<PairReply>(&mut client),
+        );
+        let message = client_result.unwrap_err().to_string();
+        assert!(message.contains("同步端口"));
+        assert!(message.contains("请检查 data\\logs"));
+        assert!(server_result.unwrap_err().to_string().contains("同步端口"));
+        assert!(!message.to_ascii_lowercase().contains("end of file"));
+    }
+
+    #[tokio::test]
+    async fn invalid_pairing_intro_keeps_the_reason() {
+        let (mut client, mut server) = socket_pair().await;
+        write_plain(&mut client, &serde_json::json!({ "nope": true }))
+            .await
+            .unwrap();
+        let (outcome, reply) = tokio::join!(
+            read_pair_intro(&mut server),
+            read_plain::<PairReply>(&mut client),
+        );
+        assert!(matches!(outcome, PairIntroRead::Retry));
+        let message = reply.unwrap_err().to_string();
+        assert!(message.contains("无法识别配对请求"));
+        assert!(message.contains("请检查 data\\logs"));
+        assert!(!message.to_ascii_lowercase().contains("end of file"));
     }
 
     #[tokio::test]

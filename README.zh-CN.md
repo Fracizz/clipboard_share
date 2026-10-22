@@ -109,13 +109,18 @@ New-NetFirewallRule -DisplayName "ClipboardShare" `
 .\clipboard_share.exe status
 ```
 
-仓库已经提供同样的模板：`portable\A\config.json` 和 `portable\B\config.json`。打包便携版：
+仓库里的模板是 `portable\config.listen.example.json` 和 `portable\config.connect.example.json`。打包便携版：
 
 ```powershell
 .\build-portable.ps1
 ```
 
-生成的 `packages\ClipboardShare-A.zip` 和 `ClipboardShare-B.zip` 解压后，按上面的 A/B 规则确认 IP 和配对码即可。
+生成两个包，都不含 `config.json`。每台电脑第一次 `start` 会生成自己的配置和唯一 `device_id`。
+
+- `packages\ClipboardShare-CLI.zip`：命令行版，只有 `clipboard_share.exe`。
+- `packages\ClipboardShare-UI.zip`：托盘界面版，同时带有命令行程序。
+
+若要自动配对，一台把 listen 模板复制为 `config.json`，另一台复制 connect 模板，并把 connect 端的 `peer_address` 改成 listen 端的局域网 IP，`pairing_code` 保持相同。
 
 ## 常用 CLI
 
@@ -141,7 +146,7 @@ New-NetFirewallRule -DisplayName "ClipboardShare" `
 缓存和日志在配置文件旁的 `data\`：文件缓存为 `data\cache\`，日志为 `data\logs\`。例如使用指定配置：
 
 ```powershell
-$env:CLIPBOARD_SHARE_CONFIG = "D:\ClipboardShare\A\config.json"
+$env:CLIPBOARD_SHARE_CONFIG = "D:\ClipboardShare\config.json"
 .\clipboard_share.exe status
 ```
 

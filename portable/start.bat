@@ -3,7 +3,7 @@ cd /d "%~dp0"
 clipboard_share.exe start
 if errorlevel 1 (
   echo.
-  echo Start failed. Check config.json and data\logs
+  echo Start failed. Check data\logs
   pause
   exit /b 1
 )

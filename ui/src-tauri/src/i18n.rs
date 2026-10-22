@@ -51,7 +51,10 @@ impl UiLocale {
     }
 
     pub fn current(&self) -> Locale {
-        *self.locale.lock().unwrap_or_else(|error| error.into_inner())
+        *self
+            .locale
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
     }
 
     pub fn set_menu_items(
@@ -75,16 +78,25 @@ impl UiLocale {
     pub fn apply_menu(&self) -> Result<(), String> {
         let locale = self.current();
         if let Some(item) = self.show.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-            item.set_text(tr(locale, "show")).map_err(|e| e.to_string())?;
+            item.set_text(tr(locale, "show"))
+                .map_err(|e| e.to_string())?;
         }
-        if let Some(item) = self.start.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-            item.set_text(tr(locale, "start")).map_err(|e| e.to_string())?;
+        if let Some(item) = self
+            .start
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
+            item.set_text(tr(locale, "start"))
+                .map_err(|e| e.to_string())?;
         }
         if let Some(item) = self.stop.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-            item.set_text(tr(locale, "stop")).map_err(|e| e.to_string())?;
+            item.set_text(tr(locale, "stop"))
+                .map_err(|e| e.to_string())?;
         }
         if let Some(item) = self.quit.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-            item.set_text(tr(locale, "quit")).map_err(|e| e.to_string())?;
+            item.set_text(tr(locale, "quit"))
+                .map_err(|e| e.to_string())?;
         }
         Ok(())
     }

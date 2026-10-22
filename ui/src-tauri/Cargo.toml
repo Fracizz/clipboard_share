@@ -1,6 +1,6 @@
 [package]
 name = "clipboard_share_ui"
-version = "0.1.5"
+version = "0.1.6"
 description = "ClipboardShare tray UI"
 authors = ["ClipboardShare"]
 edition = "2021"

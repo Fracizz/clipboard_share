@@ -76,6 +76,10 @@ async fn run() -> Result<()> {
         .unwrap_or(Commands::Daemon { background: false })
     {
         Commands::Start => {
+            if SyncService::is_running()? {
+                println!("{}", clipboard_share::process_control::ALREADY_RUNNING);
+                return Ok(());
+            }
             spawn_background_daemon()?;
             println!("ClipboardShare 已在后台启动");
             Ok(())
@@ -91,13 +95,17 @@ async fn run() -> Result<()> {
         Commands::Daemon { background: true }
             if env::var_os("CLIPBOARD_SHARE_BACKGROUND").is_none() =>
         {
+            if SyncService::is_running()? {
+                println!("{}", clipboard_share::process_control::ALREADY_RUNNING);
+                return Ok(());
+            }
             spawn_background_daemon()?;
             Ok(())
         }
         Commands::Daemon { .. } => {
-            run_daemon(std::sync::Arc::new(
-                std::sync::atomic::AtomicBool::new(false),
-            ))
+            run_daemon(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+                false,
+            )))
             .await
         }
         Commands::PairListen { code } => {

@@ -180,6 +180,16 @@ pub fn log_dir() -> Result<PathBuf> {
     Ok(app_dir()?.join("logs"))
 }
 
+pub const LOG_HINT: &str = "请检查 data\\logs";
+
+pub fn with_log_hint(message: &str) -> String {
+    if message.contains(LOG_HINT) {
+        return message.trim().to_owned();
+    }
+    let message = message.trim().trim_end_matches(['。', ' ']);
+    format!("{message}。{LOG_HINT}")
+}
+
 pub fn random_pairing_code() -> String {
     let value: u32 = rand::rng().random_range(0..1_000_000);
     format!("{value:06}")

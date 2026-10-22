@@ -3,8 +3,7 @@
 //! Dialog text is English-first (app default locale), with Chinese below.
 
 #[cfg(windows)]
-pub const WEBVIEW2_DOWNLOAD_URL: &str =
-    "https://go.microsoft.com/fwlink/p/?LinkId=2124703";
+pub const WEBVIEW2_DOWNLOAD_URL: &str = "https://go.microsoft.com/fwlink/p/?LinkId=2124703";
 
 /// Returns `true` when the app may continue (runtime present, or non-Windows).
 pub fn ensure_or_prompt() -> bool {
@@ -60,10 +59,10 @@ fn prompt_and_open_download() {
     use std::os::windows::process::CommandExt;
     use std::process::Command;
     use windows::{
-        Win32::UI::WindowsAndMessaging::{
-            MB_ICONERROR, MB_OK, MB_SETFOREGROUND, MB_TOPMOST, MessageBoxW,
-        },
         core::w,
+        Win32::UI::WindowsAndMessaging::{
+            MessageBoxW, MB_ICONERROR, MB_OK, MB_SETFOREGROUND, MB_TOPMOST,
+        },
     };
 
     let _ = Command::new("cmd")
@@ -74,14 +73,16 @@ fn prompt_and_open_download() {
     unsafe {
         MessageBoxW(
             None,
-            w!("ClipboardShare requires the Microsoft Edge WebView2 Runtime.\n\n\
+            w!(
+                "ClipboardShare requires the Microsoft Edge WebView2 Runtime.\n\n\
 The official download has been opened (Evergreen Bootstrapper):\n\
 https://go.microsoft.com/fwlink/p/?LinkId=2124703\n\n\
 Install it, then restart this app.\n\n\
 ——\n\n\
 ClipboardShare 需要 Microsoft Edge WebView2 Runtime。\n\
 已打开官方下载地址，请安装完成后重新启动本程序。\n\n\
-More info: https://developer.microsoft.com/microsoft-edge/webview2/"),
+More info: https://developer.microsoft.com/microsoft-edge/webview2/"
+            ),
             w!("ClipboardShare — Missing WebView2"),
             MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND,
         );
@@ -94,10 +95,10 @@ pub fn prompt_runtime_failure(error: &str) {
     use std::os::windows::process::CommandExt;
     use std::process::Command;
     use windows::{
+        core::{w, HSTRING},
         Win32::UI::WindowsAndMessaging::{
-            MB_ICONERROR, MB_OK, MB_SETFOREGROUND, MB_TOPMOST, MessageBoxW,
+            MessageBoxW, MB_ICONERROR, MB_OK, MB_SETFOREGROUND, MB_TOPMOST,
         },
-        core::{HSTRING, w},
     };
 
     let looks_like_webview = error.to_ascii_lowercase().contains("webview")

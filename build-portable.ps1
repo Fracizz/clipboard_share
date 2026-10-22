@@ -6,6 +6,21 @@ $uiExe = Join-Path $projectRoot "target\release\clipboard_share_ui.exe"
 # Distribution artifacts only (not cargo target/). Always under packages/.
 $distRoot = Join-Path $projectRoot "packages"
 
+function Copy-SharedFiles([string]$destination) {
+    Copy-Item (Join-Path $projectRoot "portable\config.listen.example.json") $destination
+    Copy-Item (Join-Path $projectRoot "portable\config.connect.example.json") $destination
+    Copy-Item (Join-Path $projectRoot "portable\stop.bat") $destination
+    Copy-Item (Join-Path $projectRoot "README.md") $destination
+    Copy-Item (Join-Path $projectRoot "README.zh-CN.md") $destination
+}
+
+function New-Package([string]$stageDir, [string]$zipPath) {
+    Compress-Archive `
+        -Path (Join-Path $stageDir "*") `
+        -DestinationPath $zipPath `
+        -CompressionLevel Optimal
+}
+
 Push-Location $projectRoot
 try {
     cargo build --release -p clipboard_share
@@ -29,43 +44,24 @@ try {
         Remove-Item $distRoot -Recurse -Force
     }
 
-    foreach ($side in @("A", "B")) {
-        $sideDir = Join-Path $distRoot "ClipboardShare-$side"
-        New-Item -ItemType Directory -Path $sideDir -Force | Out-Null
-        Copy-Item $releaseExe (Join-Path $sideDir "clipboard_share.exe")
-        Copy-Item $uiExe (Join-Path $sideDir "clipboard_share_ui.exe")
-        Copy-Item (Join-Path $projectRoot "portable\$side\config.json") $sideDir
-        Copy-Item (Join-Path $projectRoot "portable\start.bat") $sideDir
-        Copy-Item (Join-Path $projectRoot "portable\start-ui.bat") $sideDir
-        Copy-Item (Join-Path $projectRoot "portable\stop.bat") $sideDir
-        Copy-Item (Join-Path $projectRoot "README.md") $sideDir
-        Copy-Item (Join-Path $projectRoot "README.zh-CN.md") $sideDir
-        Compress-Archive `
-            -Path (Join-Path $sideDir "*") `
-            -DestinationPath (Join-Path $distRoot "ClipboardShare-$side.zip") `
-            -CompressionLevel Optimal
-    }
+    $cliDir = Join-Path $distRoot "ClipboardShare-CLI"
+    New-Item -ItemType Directory -Path $cliDir -Force | Out-Null
+    Copy-Item $releaseExe (Join-Path $cliDir "clipboard_share.exe")
+    Copy-Item (Join-Path $projectRoot "portable\start.bat") $cliDir
+    Copy-SharedFiles $cliDir
+    New-Package $cliDir (Join-Path $distRoot "ClipboardShare-CLI.zip")
 
-    # Dedicated tray-UI package (same binaries; A config as default template).
     $uiDir = Join-Path $distRoot "ClipboardShare-UI"
     New-Item -ItemType Directory -Path $uiDir -Force | Out-Null
     Copy-Item $uiExe (Join-Path $uiDir "clipboard_share_ui.exe")
     Copy-Item $releaseExe (Join-Path $uiDir "clipboard_share.exe")
-    Copy-Item (Join-Path $projectRoot "portable\A\config.json") (Join-Path $uiDir "config.json")
-    Copy-Item (Join-Path $projectRoot "portable\B\config.json") (Join-Path $uiDir "config.B.example.json")
     Copy-Item (Join-Path $projectRoot "portable\start-ui.bat") $uiDir
     Copy-Item (Join-Path $projectRoot "portable\start.bat") $uiDir
-    Copy-Item (Join-Path $projectRoot "portable\stop.bat") $uiDir
-    Copy-Item (Join-Path $projectRoot "README.md") $uiDir
-    Copy-Item (Join-Path $projectRoot "README.zh-CN.md") $uiDir
-    Compress-Archive `
-        -Path (Join-Path $uiDir "*") `
-        -DestinationPath (Join-Path $distRoot "ClipboardShare-UI.zip") `
-        -CompressionLevel Optimal
+    Copy-SharedFiles $uiDir
+    New-Package $uiDir (Join-Path $distRoot "ClipboardShare-UI.zip")
 
     Write-Host "Portable packages created:"
-    Write-Host "  $distRoot\ClipboardShare-A.zip"
-    Write-Host "  $distRoot\ClipboardShare-B.zip"
+    Write-Host "  $distRoot\ClipboardShare-CLI.zip"
     Write-Host "  $distRoot\ClipboardShare-UI.zip"
 }
 finally {
