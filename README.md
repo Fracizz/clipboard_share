@@ -2,17 +2,19 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**English** | [中文](README.zh-CN.md)
+**English** | [简体中文](README.zh-CN.md)
 
-Windows LAN clipboard sync. The CLI is the recommended entry point: after a one-time pairing, two PCs sync text, HTML, RTF, images, and files/directories in both directions.
+Copy on one Windows PC and paste on another over your LAN. Pair once to sync text, HTML, RTF, images, files, and folders in both directions.
 
-> **Platforms (v1):** Windows only (macOS and Linux are not supported). Clipboard sync currently targets Windows 10 1809+ / Windows 11. The Windows tray UI requires [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/); the CLI does not. The app runs in the logged-in user session.
+[Download CLI or tray app](https://github.com/Fracizz/clipboard_share/releases/latest) · [CLI quick start](#30-second-cli-quick-start) · [Tray app](#optional-tray-ui)
+
+Clipboard sync runs in the signed-in user session on Windows 10 1809+ and Windows 11. The tray app also requires [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
 
 ## 30-second CLI quick start
 
 ### 1. Prepare
 
-Copy `clipboard_share.exe` to a directory on both PCs. Enable Windows Clipboard history with `Win+V`.
+Extract `ClipboardShare-CLI.zip` and place `clipboard_share.exe` on both PCs. On each PC, open PowerShell in the executable's directory and enable Clipboard history with `Win+V`.
 
 Allow TCP `24817` (sync) and `24818` (pairing) on **Private** networks only. Run this in an elevated PowerShell on each PC:
 

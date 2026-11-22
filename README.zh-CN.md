@@ -2,17 +2,19 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-[English](README.md) | **中文**
+[English](README.md) | **简体中文**
 
-Windows 局域网剪贴板同步工具。推荐直接使用 CLI：两台电脑只需配对一次，即可双向同步文本、HTML、RTF、图片以及文件/目录。
+在同一局域网内的两台 Windows 电脑之间同步剪贴板。配对一次后，在任意一台复制文字、HTML、RTF、图片、文件或目录，就能在另一台粘贴。
 
-> **平台（v1）：** 仅支持 Windows，暂不支持 macOS / Linux。剪贴板同步目前面向 Windows 10 1809+ / Windows 11。Windows 托盘 UI 需要 [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)，CLI 不需要。程序运行在当前登录用户会话中。
+[下载 CLI 或托盘版](https://github.com/Fracizz/clipboard_share/releases/latest) · [CLI 快速开始](#30-秒开始cli) · [托盘界面](#可选托盘-ui)
+
+剪贴板同步支持 Windows 10 1809+ 和 Windows 11，运行在当前登录用户会话中。托盘版需要 [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)。
 
 ## 30 秒开始（CLI）
 
 ### 1. 准备
 
-把 `clipboard_share.exe` 复制到两台电脑的同一个目录，并在 Windows 中开启剪贴板历史记录（按 `Win+V`）。
+下载并解压 `ClipboardShare-CLI.zip`，把 `clipboard_share.exe` 放到两台电脑上。在两台电脑分别打开 PowerShell，进入 EXE 所在目录，并按 `Win+V` 打开剪贴板历史记录。
 
 默认需要在局域网防火墙放行 **专用网络** TCP `24817`（同步）和 `24818`（配对）。管理员 PowerShell 可执行：
 
